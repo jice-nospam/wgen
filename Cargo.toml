@@ -1,0 +1,17 @@
+[package]
+name = "worldgen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.18.*"
+egui_extras = { version = "0.18.*", features = ["image"] }
+epaint = "0.18.*"
+egui_glow = "0.18.*"
+glow = "0.11"
+three-d = { version = "0.11", default-features = false }
+image = { version = "0.23", default-features = false, features = ["png"] }
+rand = "0.5"
+noise = "*"
+serde = { version = "1.0", features = ["derive"] }
+ron = "0.7"

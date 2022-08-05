@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use eframe::egui::{self, PointerButton};
 use image::{EncodableLayout, GenericImageView};
 use three_d::{
@@ -486,8 +484,11 @@ fn edge_transformations(grid_size: usize, mesh_data: &MeshData) -> Vec<Instance>
         })
         .collect::<Vec<_>>()
 }
+
+const SKY_BYTES: &[u8] = include_bytes!("../sky.jpg");
+
 fn build_sky(three_d: &three_d::Context) -> Model<PhysicalMaterial> {
-    let img = image::open(&Path::new("sky.jpg")).unwrap();
+    let img = image::load_from_memory(SKY_BYTES).unwrap();
     let buffer = img.as_rgb8().unwrap().as_bytes();
     let mut data = Vec::new();
     let mut i = 0;

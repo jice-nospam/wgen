@@ -16,4 +16,4 @@ Smoother landscape using only hills generator :
 Exemple of (untextured) 4K x 4K landscape imported in Unreal Engine 5 :
 ![UE5 example](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ex_ue5.jpg)
 
-If you like this project and want to support its development, feel free to donate at [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](jice.nospam@gmail.com)
+If you like this project and want to support its development, feel free to donate at [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://paypal.me/guldendraak)

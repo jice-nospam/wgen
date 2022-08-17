@@ -193,9 +193,9 @@ impl PanelGenerator {
                             }
                             if ui
                                 .button(egui::RichText::new("👁").color(if self.disabled[i] {
-                                    Color32::from_rgb(200, 200, 200)
-                                } else {
                                     Color32::from_rgb(0, 0, 0)
+                                } else {
+                                    Color32::from_rgb(200, 200, 200)
                                 }))
                                 .on_hover_text("Disable this step")
                                 .clicked()

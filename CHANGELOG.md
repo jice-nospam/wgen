@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+- landmass didn't work if input was not normalized
 
 ## [0.1.0] - 2022-08-05
 ### Added

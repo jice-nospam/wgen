@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ThreadMessage;
 
-use super::{report_progress, vec_get_safe};
+use super::{normalize, report_progress, vec_get_safe};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct LandMassConf {
@@ -49,11 +49,12 @@ pub fn gen_landmass(
 ) {
     let mut height_count: [f32; 256] = [0.0; 256];
     let mut progress = 0.0;
+    normalize(hmap, 0.0, 1.0);
     for y in 0..size.1 {
         let yoff = y * size.0;
         for x in 0..size.0 {
-            let h = vec_get_safe(hmap, x + yoff);
-            let ih = ((h * 255.0) as usize).max(255).min(0);
+            let h = hmap[x + yoff];
+            let ih = (h * 255.0) as usize;
             height_count[ih] += 1.0;
         }
         let new_progress = 0.33 * y as f32 / size.1 as f32;
@@ -62,21 +63,21 @@ pub fn gen_landmass(
             report_progress(progress, export, tx.clone());
         }
     }
-    let mut i = 0;
-    let mut totalcount = 0.0;
-    let max_count = (size.0 * size.1) as f32 * (1.0 - conf.land_proportion);
-    while totalcount < max_count {
-        totalcount += height_count[i];
-        i += 1;
+    let mut water_level = 0;
+    let mut water_cells = 0.0;
+    let target_water_cells = (size.0 * size.1) as f32 * (1.0 - conf.land_proportion);
+    while water_level < 256 && water_cells < target_water_cells {
+        water_cells += height_count[water_level];
+        water_level += 1;
     }
-    let new_water_level = i as f32 / 255.0;
+    let new_water_level = water_level as f32 / 255.0;
     let land_coef = (1.0 - conf.water_level) / (1.0 - new_water_level);
     let water_coef = conf.water_level / new_water_level;
-    // water level should be rval_sed/lowered to newWaterLevel
+    // water level should be raised/lowered to newWaterLevel
     for y in 0..size.1 {
         let yoff = y * size.0;
         for x in 0..size.0 {
-            let mut h = vec_get_safe(hmap, x + yoff);
+            let mut h = hmap[x + yoff];
             if h > new_water_level {
                 h = conf.water_level + (h - new_water_level) * land_coef;
             } else {
@@ -94,7 +95,7 @@ pub fn gen_landmass(
     for y in 0..size.1 {
         let yoff = y * size.0;
         for x in 0..size.0 {
-            let mut h = vec_get_safe(hmap, x + yoff);
+            let mut h = hmap[x + yoff];
             if h >= conf.water_level {
                 let coef = (h - conf.water_level) / (1.0 - conf.water_level);
                 h = conf.water_level + coef * coef * coef * (1.0 - conf.water_level);

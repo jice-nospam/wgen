@@ -197,7 +197,11 @@ impl PanelGenerator {
                                 } else {
                                     Color32::from_rgb(200, 200, 200)
                                 }))
-                                .on_hover_text("Disable this step")
+                                .on_hover_text(if self.disabled[i] {
+                                    "Enable this step"
+                                } else {
+                                    "Disable this step"
+                                })
                                 .clicked()
                             {
                                 self.disabled[i] = !self.disabled[i];

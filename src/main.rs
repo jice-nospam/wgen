@@ -147,6 +147,13 @@ impl MyApp {
         }
         self.gen_panel.is_running = true;
     }
+    fn set_seed(&mut self, new_seed: u64) {
+        self.seed = new_seed;
+        self.main2gen_tx
+            .send(WorldGenCommand::SetSeed(new_seed))
+            .unwrap();
+        self.regen(false, 0);
+    }
     fn resize(&mut self, new_size: usize) {
         if self.preview_size == new_size {
             return;
@@ -175,7 +182,7 @@ impl MyApp {
                 match self.load_save_panel.render(ui) {
                     Some(SaveLoadAction::Load) => {
                         self.gen_panel.load(&self.load_save_panel.get_file_path());
-                        self.regen(false, 0);
+                        self.set_seed(self.gen_panel.seed);
                     }
                     Some(SaveLoadAction::Save) => {
                         self.gen_panel.save(&self.load_save_panel.get_file_path());
@@ -186,11 +193,7 @@ impl MyApp {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     match self.gen_panel.render(ui, self.progress) {
                         Some(GeneratorAction::SetSeed(new_seed)) => {
-                            self.seed = new_seed;
-                            self.main2gen_tx
-                                .send(WorldGenCommand::SetSeed(new_seed))
-                                .unwrap();
-                            self.regen(false, 0);
+                            self.set_seed(new_seed);
                         }
                         Some(GeneratorAction::Regen(must_delete, from_idx)) => {
                             self.regen(must_delete, from_idx);

@@ -2,7 +2,8 @@
 
 ## [Unreleased]
 ### Fixed
-- landmass didn't work if input was not normalized
+- seed is now set correctly when loading a project
+- landmass works even if input is not normalized
 
 ## [0.1.0] - 2022-08-05
 ### Added

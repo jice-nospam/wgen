@@ -36,7 +36,7 @@ pub struct PanelGenerator {
     pub selected_step: usize,
     move_to_pos: usize,
     hovered: bool,
-    seed: u64,
+    pub seed: u64,
 }
 
 impl Default for PanelGenerator {

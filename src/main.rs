@@ -182,6 +182,7 @@ impl MyApp {
                 match self.load_save_panel.render(ui) {
                     Some(SaveLoadAction::Load) => {
                         self.gen_panel.load(&self.load_save_panel.get_file_path());
+                        self.main2gen_tx.send(WorldGenCommand::Clear).unwrap();
                         self.set_seed(self.gen_panel.seed);
                     }
                     Some(SaveLoadAction::Save) => {

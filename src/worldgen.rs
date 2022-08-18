@@ -21,6 +21,7 @@ pub enum WorldGenCommand {
     SetSize(usize),
     GetStepMap(usize),
     SetSeed(u64),
+    Clear,
     Abort,
 }
 
@@ -97,6 +98,9 @@ fn do_command(
 ) {
     log(&format!("wgen<={:?}", msg));
     match msg {
+        WorldGenCommand::Clear => {
+            wgen.clear();
+        }
         WorldGenCommand::SetSeed(new_seed) => {
             wgen.seed = new_seed;
         }
@@ -191,14 +195,11 @@ impl WorldGenerator {
         }
     }
     pub fn get_export_map(&self) -> ExportMap {
-        ExportMap {
-            size: self.world_size,
-            h: if self.hmap.is_empty() {
-                vec![0.0; self.world_size.0 * self.world_size.1]
-            } else {
-                self.hmap[self.hmap.len() - 1].h.clone()
-            },
-        }
+        self.get_step_export_map(if self.hmap.is_empty() {
+            0
+        } else {
+            self.hmap.len() - 1
+        })
     }
     pub fn get_step_export_map(&self, step: usize) -> ExportMap {
         ExportMap {

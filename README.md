@@ -4,7 +4,7 @@ There are a lot of great terrain generators out there but most of them have a fr
 
 This is a much simpler generator, but it can export maps as big as you want.
 
-Continent example, using a high frequency FBM :
+Continent example, using a rough hill pattern and a high frequency FBM :
 ![continent example](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ex_continent.jpg)
 
 Island example, using mid-point deplacement algorithm :

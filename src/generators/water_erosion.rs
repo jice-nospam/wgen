@@ -75,7 +75,7 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
         ui.add(
             egui::DragValue::new(&mut conf.drop_amount)
                 .speed(0.01)
-                .clamp_range(0.1..=1.0),
+                .clamp_range(0.1..=2.0),
         );
         ui.label("erosion strength")
             .on_hover_text("How much soil is eroded by the drop");
@@ -123,6 +123,13 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
             egui::DragValue::new(&mut conf.radius)
                 .speed(0.1)
                 .clamp_range(1.0..=10.0),
+        );
+        ui.label("minimum slope")
+            .on_hover_text("Minimum height for the drop capacity calculation");
+        ui.add(
+            egui::DragValue::new(&mut conf.min_slope)
+                .speed(0.001)
+                .clamp_range(0.001..=0.1),
         );
     });
 }
@@ -176,6 +183,11 @@ pub fn gen_water_erosion(
                 let h11 = hmap[off + 1 + size.0];
                 let old_u = drop.pos.0.fract();
                 let old_v = drop.pos.1.fract();
+                // weight for each cell surrounding the drop position
+                let w00 = (1.0 - old_u) * (1.0 - old_v);
+                let w10 = old_u * (1.0 - old_v);
+                let w01 = (1.0 - old_u) * old_v;
+                let w11 = old_u * old_v;
                 // get slope direction
                 let mut gx = (h00 - h10) * (1.0 - old_v) + (h01 - h11) * old_v;
                 let mut gy = (h00 - h01) * (1.0 - old_u) + (h10 - h11) * old_u;
@@ -209,10 +221,10 @@ pub fn gen_water_erosion(
                 if hdif >= 0.0 {
                     // going uphill : deposit sediment at old position
                     let deposit = drop.sediment.min(hdif);
-                    hmap[old_off] += deposit * (1.0 - old_u) * (1.0 - old_v);
-                    hmap[old_off + 1] += deposit * old_u * (1.0 - old_v);
-                    hmap[old_off + size.0] += deposit * (1.0 - old_u) * old_v;
-                    hmap[old_off + 1 + size.0] += deposit * old_u * old_v;
+                    hmap[old_off] += deposit * w00;
+                    hmap[old_off + 1] += deposit * w10;
+                    hmap[old_off + size.0] += deposit * w01;
+                    hmap[old_off + 1 + size.0] += deposit * w11;
                     drop.sediment -= deposit;
                     drop.speed = 0.0;
                     if drop.sediment <= 0.0 {
@@ -225,10 +237,10 @@ pub fn gen_water_erosion(
                     if drop.sediment > drop.capacity {
                         // too much sediment in the drop. deposit
                         let deposit = (drop.sediment - drop.capacity) * conf.deposition;
-                        hmap[old_off] += deposit * (1.0 - old_u) * (1.0 - old_v);
-                        hmap[old_off + 1] += deposit * old_u * (1.0 - old_v);
-                        hmap[old_off + size.0] += deposit * (1.0 - old_u) * old_v;
-                        hmap[old_off + 1 + size.0] += deposit * old_u * old_v;
+                        hmap[old_off] += deposit * w00;
+                        hmap[old_off + 1] += deposit * w10;
+                        hmap[old_off + size.0] += deposit * w01;
+                        hmap[old_off + 1 + size.0] += deposit * w11;
                         drop.sediment -= deposit;
                     } else {
                         // erode

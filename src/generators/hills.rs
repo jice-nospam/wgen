@@ -67,7 +67,11 @@ pub fn gen_hills(
     let hill_max_radius = real_radius * (1.0 + conf.radius_var);
     let mut progress = 0.0;
     for i in 0..conf.nb_hill {
-        let radius: f32 = rng.gen_range(hill_min_radius, hill_max_radius);
+        let radius: f32 = if conf.radius_var == 0.0 {
+            hill_min_radius
+        } else {
+            rng.gen_range(hill_min_radius, hill_max_radius)
+        };
         let xh: f32 = rng.gen_range(0.0, size.0 as f32);
         let yh: f32 = rng.gen_range(0.0, size.1 as f32);
         let radius2 = radius * radius;

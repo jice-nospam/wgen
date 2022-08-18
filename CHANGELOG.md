@@ -8,7 +8,8 @@
 ### Fixed
 - seed is now set correctly when loading a project
 - landmass works even if input is not normalized
-- 2d and 3d previews when loading a project with less steps than current project
+- 2d and 3d previews work when loading a project with less steps than current project
+- hills doesn't crash anymore when using radius variation == 0.0
 
 ## [0.1.0] - 2022-08-05
 ### Added

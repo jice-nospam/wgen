@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ThreadMessage;
 
-use super::{normalize, report_progress, vec_get_safe};
+use super::{normalize, report_progress};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct LandMassConf {

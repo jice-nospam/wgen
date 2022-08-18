@@ -63,6 +63,9 @@ impl ExportMap {
         }
         0.0
     }
+    pub fn borrow(&self) -> &Vec<f32> {
+        &self.h
+    }
 }
 
 #[derive(Clone)]
@@ -300,6 +303,7 @@ impl WorldGenerator {
                     min_progress_step,
                 ),
                 Step::WaterErosion(conf) => gen_water_erosion(
+                    self.seed,
                     self.world_size,
                     &mut hmap.h,
                     conf,

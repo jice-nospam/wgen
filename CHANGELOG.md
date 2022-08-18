@@ -1,6 +1,10 @@
 # Changelog
 
 ## [Unreleased]
+
+### Changed
+- improved water erosion algorithm
+
 ### Fixed
 - seed is now set correctly when loading a project
 - landmass works even if input is not normalized

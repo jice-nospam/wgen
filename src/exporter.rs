@@ -57,7 +57,7 @@ pub fn export_heightmap(
                 file_height as u32,
                 image::ColorType::L16,
             )
-            .map_err(|e| format!("{}", e))?;
+            .map_err(|e| format!("Error while saving {}: {}", &path, e))?;
         }
     }
     Ok(())

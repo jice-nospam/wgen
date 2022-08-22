@@ -11,7 +11,7 @@
 - landmass works even if input is not normalized
 - 2d and 3d previews work when loading a project with less steps than current project
 - hills doesn't crash anymore when using radius variation == 0.0
-- worldgen doesn't crash anymore if there is an error while loading/saving a project
+- worldgen doesn't crash anymore if there is an error while loading/saving a project or exporting a heightmap
 
 ## [0.1.0] - 2022-08-05
 ### Added

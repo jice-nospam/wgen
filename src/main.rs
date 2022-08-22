@@ -257,7 +257,6 @@ impl MyApp {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        // TODO when next eframe is released, get window size
         let wsize = frame.info().window_info.size;
         let new_size =((wsize.x -340.0 ) * 0.5) as usize;
         if new_size != self.image_size {
@@ -327,8 +326,12 @@ impl eframe::App for MyApp {
                         );
                     }
                 }
-                Ok(ThreadMessage::ExporterDone(_res)) => {
-                    // TODO popup if _res == Err(_)
+                Ok(ThreadMessage::ExporterDone(res)) => {
+                    if let Err(msg) = res {
+                        let err_msg=format!("Error while exporting heightmap : {}", msg);
+                        println!("{}", err_msg);
+                        self.err_msg = Some(err_msg);
+                    }
                     log("main<=ExporterDone");
                     self.enabled = true;
                     self.exporter_progress = 1.0;

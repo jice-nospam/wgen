@@ -31,25 +31,29 @@ impl Panel2dView {
             fps_counter: FpsCounter::default(),
             img: None,
         };
-        panel.refresh(image_size, preview_size, hmap);
+        panel.refresh(image_size, preview_size, Some(hmap));
         panel
     }
-    pub fn refresh(&mut self, image_size: usize, preview_size: u32, hmap: &ExportMap) {
+    pub fn refresh(&mut self, image_size: usize, preview_size: u32, hmap: Option<&ExportMap>) {
         self.image_size = image_size;
         self.preview_size = preview_size as usize;
-        let (min, max) = hmap.get_min_max();
-        let coef = if max - min > std::f32::EPSILON {
-            1.0 / (max - min)
+        let mut buff = if let Some(hmap) = hmap {
+            let (min, max) = hmap.get_min_max();
+            let coef = if max - min > std::f32::EPSILON {
+                1.0 / (max - min)
+            } else {
+                1.0
+            };
+            self.min = min;
+            self.max = max;
+            GrayImage::from_fn(preview_size, preview_size, |x, y| {
+                let mut h = hmap.height(x as usize, y as usize);
+                h = (h - min) * coef;
+                Luma([(h * 255.0).clamp(0.0, 255.0) as u8])
+            })
         } else {
-            1.0
+            GrayImage::new(1,1)
         };
-        let mut buff = GrayImage::from_fn(preview_size, preview_size, |x, y| {
-            let mut h = hmap.height(x as usize, y as usize);
-            h = (h - min) * coef;
-            Luma([(h * 255.0).clamp(0.0, 255.0) as u8])
-        });
-        self.min = min;
-        self.max = max;
         self.buff = image::imageops::resize(
             &mut buff,
             self.image_size as u32,

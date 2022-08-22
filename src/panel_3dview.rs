@@ -1,3 +1,5 @@
+use std::{rc::Rc, sync::Arc};
+
 use eframe::egui::{self, PointerButton};
 use image::{EncodableLayout, GenericImageView};
 use three_d::{
@@ -205,15 +207,16 @@ impl Panel3dView {
 
         let callback = egui::PaintCallback {
             rect,
-            callback: std::sync::Arc::new(move |info, render_ctx| {
-                if let Some(painter) = render_ctx.downcast_ref::<egui_glow::Painter>() {
+            callback: std::sync::Arc::new(
+                egui_glow::CallbackFn::new(
+                    move |info, painter| {
                     with_three_d_context(painter.gl(), |three_d, renderer| {
                         if mesh_updated {
                             renderer.update_model(three_d, &mesh_data);
                         }
                         renderer.render(
                             three_d,
-                            info,
+                            &info,
                             orbit,
                             pan,
                             zoom,
@@ -224,10 +227,8 @@ impl Panel3dView {
                             show_skybox,
                         );
                     });
-                } else {
-                    eprintln!("Can't do custom painting because we are not using a glow context");
                 }
-            }),
+            )),
         };
         ui.painter().add(callback);
         self.mesh_updated = false;
@@ -235,7 +236,7 @@ impl Panel3dView {
 }
 
 fn with_three_d_context<R>(
-    gl: &std::rc::Rc<glow::Context>,
+    gl: &std::sync::Arc<glow::Context>,
     f: impl FnOnce(&three_d::Context, &mut Renderer) -> R,
 ) -> R {
     use std::cell::RefCell;
@@ -256,9 +257,11 @@ fn with_three_d_context<R>(
     THREE_D.with(|context| {
         let mut context = context.borrow_mut();
         let (three_d, renderer) = context.get_or_insert_with(|| {
-            let three_d = three_d::Context::from_gl_context(gl.clone()).unwrap();
+            unsafe {
+            let three_d = three_d::Context::from_gl_context(Rc::from_raw(Arc::into_raw(gl.clone()))).unwrap();
             let renderer = Renderer::new(&three_d);
             (three_d, renderer)
+            }
         });
 
         f(three_d, renderer)

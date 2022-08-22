@@ -4,6 +4,7 @@
 
 ### Changed
 - improved water erosion algorithm
+- thanks to egui 0.19, UI is now responsive and adapts to any resolution
 
 ### Fixed
 - seed is now set correctly when loading a project

@@ -245,9 +245,16 @@ impl MyApp {
 }
 
 impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // TODO when next eframe is released, get window size
-        //frame.info().window_info
+        let wsize = frame.info().window_info.size;
+        let new_size =((wsize.x -340.0 ) * 0.5) as usize;
+        if new_size != self.image_size {
+            self.image_size = new_size;
+            self.panel_2d.refresh(self.image_size, self.preview_size as u32, None);
+            self.panel_3d = Panel3dView::new(self.image_size as f32);
+            self.regen(false, 0);
+        }
         ctx.set_visuals(Visuals::dark());
         loop {
             match self.thread2main_rx.try_recv() {
@@ -259,7 +266,7 @@ impl eframe::App for MyApp {
                 Ok(ThreadMessage::GeneratorDone(hmap)) => {
                     log("main<=Done");
                     self.panel_2d
-                        .refresh(self.image_size, self.preview_size as u32, &hmap);
+                        .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
                     self.enabled = true;
                     self.gen_panel.selected_step = self.gen_panel.steps.len() - 1;
                     self.panel_3d.update_mesh(&hmap);
@@ -270,14 +277,14 @@ impl eframe::App for MyApp {
                     log(&format!("main<=GeneratorStepDone({})", step));
                     if let Some(ref hmap) = hmap {
                         self.panel_2d
-                            .refresh(self.image_size, self.preview_size as u32, hmap);
+                            .refresh(self.image_size, self.preview_size as u32, Some(hmap));
                     }
                     self.gen_panel.selected_step = step;
                     self.progress = (step + 1) as f32 / self.gen_panel.enabled_steps() as f32
                 }
                 Ok(ThreadMessage::GeneratorStepMap(_idx, hmap)) => {
                     self.panel_2d
-                        .refresh(self.image_size, self.preview_size as u32, &hmap);
+                        .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
                 }
                 Ok(ThreadMessage::ExporterStepProgress(progress)) => {
                     let progstep = 1.0 / self.gen_panel.enabled_steps() as f32;

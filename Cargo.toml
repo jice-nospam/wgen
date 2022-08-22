@@ -15,3 +15,4 @@ rand = "0.5"
 noise = "*"
 serde = { version = "1.0", features = ["derive"] }
 ron = "0.7"
+num_cpus = "1.*"

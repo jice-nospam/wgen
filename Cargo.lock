@@ -2355,6 +2355,7 @@ dependencies = [
  "glow",
  "image 0.23.14",
  "noise",
+ "num_cpus",
  "rand 0.5.6",
  "ron",
  "serde",

@@ -44,6 +44,7 @@ fn main() {
         depth_buffer: 24,
         ..Default::default()
     };
+    println!("wgen v{} - {} cpus", VERSION, num_cpus::get());
     eframe::run_native("wgen", options, Box::new(|_cc| Box::new(MyApp::default())));
 }
 

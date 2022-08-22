@@ -88,22 +88,36 @@ pub fn gen_fbm(
     let xcoef = conf.mulx / 400.0;
     let ycoef = conf.muly / 400.0;
     let mut progress = 0.0;
-    let fbm = Fbm::new()
-        .set_seed(seed as u32)
-        .set_octaves(conf.octaves as usize);
-    for x in 0..size.0 {
-        let mut offset = x;
-        let f0 = (x as f32 * 512.0 / size.0 as f32 + conf.addx) * xcoef;
-        for y in 0..size.1 {
-            let f1 = (y as f32 * 512.0 / size.1 as f32 + conf.addy) * ycoef;
-            let value = conf.delta + fbm.get([f0 as f64, f1 as f64]) as f32 * conf.scale;
-            hmap[offset] += value;
-            offset += size.0;
+    let num_threads = num_cpus::get();
+    std::thread::scope(|s| {
+        let size_per_job = size.1 / num_threads;
+        for (i,chunk) in hmap.chunks_mut(size_per_job * size.0).enumerate() {
+            let i=i;
+            let fbm = Fbm::new()
+                .set_seed(seed as u32)
+                .set_octaves(conf.octaves as usize);
+            let tx=tx.clone();
+            s.spawn(move || {
+                let yoffset = i * size_per_job;
+                let lasty = size_per_job.min(size.1-yoffset);
+                for y in 0..lasty {
+                    let f1 = ((y + yoffset) as f32 * 512.0 / size.1 as f32 + conf.addy) * ycoef;
+                    let mut offset = y * size.0;
+                    for x in 0..size.0 {
+                        let f0 = (x as f32 * 512.0 / size.0 as f32 + conf.addx) * xcoef;
+                        let value = conf.delta + fbm.get([f0 as f64, f1 as f64]) as f32 * conf.scale;
+                        chunk[offset] += value;
+                        offset += 1;
+                    }
+                    if i==0 {
+                        let new_progress = (y + 1) as f32 / size_per_job as f32;
+                        if new_progress - progress >= min_progress_step {
+                            progress = new_progress;
+                            report_progress(progress, export, tx.clone())
+                        }                        
+                    }
+                }
+            });
         }
-        let new_progress = (x + 1) as f32 / size.0 as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone())
-        }
-    }
+    });
 }

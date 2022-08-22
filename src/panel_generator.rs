@@ -276,25 +276,25 @@ impl PanelGenerator {
         }
         action
     }
-    pub fn load(&mut self, file_path: &str) {
-        // TODO error handling
-        let mut file = File::open(file_path).expect("Unable to open the file");
+    pub fn load(&mut self, file_path: &str) -> Result<(),String>{
+        let mut file = File::open(file_path).map_err(|_| "Unable to open the file")?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)
-            .expect("Unable to read the file");
+            .map_err(|_| "Unable to read the file")?;
         let gen_data: PanelGenerator = ron::from_str(&contents).unwrap();
         if gen_data.version != VERSION {
-            panic!(
-                "Bad file version. Expected {}, found {}",
-                VERSION, gen_data.version
+            return Err(
+                format!("Bad file version. Expected {}, found {}",
+                VERSION, gen_data.version)
             );
         }
         *self = gen_data;
+        Ok(())
     }
-    pub fn save(&self, file_path: &str) {
-        // TODO error handling
+    pub fn save(&self, file_path: &str) -> Result<(), String>{
         let data = ron::to_string(self).unwrap();
-        let mut buffer = File::create(file_path).expect("Unable to create the file");
-        write!(buffer, "{}", data).expect("Unable to write to the file");
+        let mut buffer = File::create(file_path).map_err(|_| "Unable to create the file")?;
+        write!(buffer, "{}", data).map_err(|_| "Unable to write to the file")?;
+        Ok(())
     }
 }

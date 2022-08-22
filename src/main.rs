@@ -64,6 +64,7 @@ struct MyApp {
     thread2main_rx: Receiver<ThreadMessage>,
     main2gen_tx: Sender<WorldGenCommand>,
     thread2main_tx: Sender<ThreadMessage>,
+    err_msg: Option<String>,
 }
 
 impl Default for MyApp {
@@ -98,6 +99,7 @@ impl Default for MyApp {
             thread2main_rx,
             main2gen_tx,
             thread2main_tx,
+            err_msg: None,
         }
     }
 }
@@ -181,12 +183,21 @@ impl MyApp {
                 ui.separator();
                 match self.load_save_panel.render(ui) {
                     Some(SaveLoadAction::Load) => {
-                        self.gen_panel.load(&self.load_save_panel.get_file_path());
-                        self.main2gen_tx.send(WorldGenCommand::Clear).unwrap();
-                        self.set_seed(self.gen_panel.seed);
+                        if let Err(msg) = self.gen_panel.load(&self.load_save_panel.get_file_path()) {
+                            let err_msg = format!("Error while reading project {} : {}", &self.load_save_panel.get_file_path(), msg);
+                            println!("{}", err_msg);
+                            self.err_msg = Some(err_msg);
+                        } else {
+                            self.main2gen_tx.send(WorldGenCommand::Clear).unwrap();
+                            self.set_seed(self.gen_panel.seed);
+                        }
                     }
                     Some(SaveLoadAction::Save) => {
-                        self.gen_panel.save(&self.load_save_panel.get_file_path());
+                        if let Err(msg) = self.gen_panel.save(&self.load_save_panel.get_file_path()){
+                            let err_msg = format!("Error while writing project {} : {}", &self.load_save_panel.get_file_path(), msg);
+                            println!("{}", err_msg);
+                            self.err_msg = Some(err_msg);
+                        }
                     }
                     None => (),
                 }
@@ -250,6 +261,7 @@ impl eframe::App for MyApp {
         let wsize = frame.info().window_info.size;
         let new_size =((wsize.x -340.0 ) * 0.5) as usize;
         if new_size != self.image_size {
+            // handle window resizing
             self.image_size = new_size;
             self.panel_2d.refresh(self.image_size, self.preview_size as u32, None);
             self.panel_3d = Panel3dView::new(self.image_size as f32);
@@ -331,6 +343,18 @@ impl eframe::App for MyApp {
         }
         self.render_left_panel(ctx);
         self.render_central_panel(ctx);
+        if let Some(ref err_msg) = self.err_msg {
+            let mut open = true;
+            egui::Window::new("Error").resizable(false).collapsible(false).open(&mut open).show (ctx, |ui| {
+                ui.scope(|ui| {
+                    ui.visuals_mut().override_text_color = Some(egui::Color32::RED);
+                    ui.label(err_msg);
+                });
+            });
+            if open == false {
+                self.err_msg = None;
+            }
+        }
     }
 }
 

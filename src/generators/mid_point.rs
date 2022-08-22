@@ -1,7 +1,7 @@
 use std::sync::mpsc::Sender;
 
 use eframe::egui;
-use rand::{Rng, SeedableRng, StdRng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::ThreadMessage;

@@ -1,7 +1,7 @@
 use std::{rc::Rc, sync::Arc};
 
 use eframe::egui::{self, PointerButton};
-use image::{EncodableLayout, GenericImageView};
+use image::EncodableLayout;
 use three_d::{
     degrees, radians, rotation_matrix_from_dir_to_dir, vec2, vec3, AmbientLight, Camera, Color,
     ColorMaterial, CpuMaterial, CpuMesh, CpuTexture, Cull, DirectionalLight, Gm, Indices,
@@ -207,28 +207,25 @@ impl Panel3dView {
 
         let callback = egui::PaintCallback {
             rect,
-            callback: std::sync::Arc::new(
-                egui_glow::CallbackFn::new(
-                    move |info, painter| {
-                    with_three_d_context(painter.gl(), |three_d, renderer| {
-                        if mesh_updated {
-                            renderer.update_model(three_d, &mesh_data);
-                        }
-                        renderer.render(
-                            three_d,
-                            &info,
-                            orbit,
-                            pan,
-                            zoom,
-                            hscale,
-                            show_water,
-                            water_level,
-                            show_grid,
-                            show_skybox,
-                        );
-                    });
-                }
-            )),
+            callback: std::sync::Arc::new(egui_glow::CallbackFn::new(move |info, painter| {
+                with_three_d_context(painter.gl(), |three_d, renderer| {
+                    if mesh_updated {
+                        renderer.update_model(three_d, &mesh_data);
+                    }
+                    renderer.render(
+                        three_d,
+                        &info,
+                        orbit,
+                        pan,
+                        zoom,
+                        hscale,
+                        show_water,
+                        water_level,
+                        show_grid,
+                        show_skybox,
+                    );
+                });
+            })),
         };
         ui.painter().add(callback);
         self.mesh_updated = false;
@@ -256,12 +253,11 @@ fn with_three_d_context<R>(
     }
     THREE_D.with(|context| {
         let mut context = context.borrow_mut();
-        let (three_d, renderer) = context.get_or_insert_with(|| {
-            unsafe {
-            let three_d = three_d::Context::from_gl_context(Rc::from_raw(Arc::into_raw(gl.clone()))).unwrap();
+        let (three_d, renderer) = context.get_or_insert_with(|| unsafe {
+            let three_d =
+                three_d::Context::from_gl_context(Rc::from_raw(Arc::into_raw(gl.clone()))).unwrap();
             let renderer = Renderer::new(&three_d);
             (three_d, renderer)
-            }
         });
 
         f(three_d, renderer)

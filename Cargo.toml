@@ -10,9 +10,12 @@ epaint = "0.19.*"
 egui_glow = "0.19.*"
 glow = "0.11"
 three-d = { version = "0.11", default-features = false }
-image = { version = "0.23", default-features = false, features = ["png"] }
-rand = "0.5"
-noise = "*"
+image = { version = "0.24", default-features = false, features = [
+    "png",
+    "jpeg"
+] }
+rand = "0.7.3"
+noise = { version = "*", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 ron = "0.7"
 num_cpus = "1.*"

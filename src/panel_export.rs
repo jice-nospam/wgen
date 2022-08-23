@@ -1,6 +1,8 @@
+use std::path::PathBuf;
+
 use eframe::egui;
 
-pub const TEXTEDIT_WIDTH: f32 = 180.0;
+pub const TEXTEDIT_WIDTH: f32 = 240.0;
 
 #[derive(Clone)]
 pub struct PanelExport {
@@ -8,21 +10,23 @@ pub struct PanelExport {
     pub export_height: f32,
     pub tiles_h: f32,
     pub tiles_v: f32,
-    pub export_dir: String,
-    pub file_pattern: String,
+    pub file_path: String,
     pub enabled: bool,
+    cur_dir: PathBuf,
 }
 
 impl Default for PanelExport {
     fn default() -> Self {
+        let cur_dir = std::env::current_dir().unwrap();
+        let file_path = format!("{}/wgen", cur_dir.display().to_string());
         Self {
             export_width: 1024.0,
             export_height: 1024.0,
             tiles_h: 1.0,
             tiles_v: 1.0,
-            export_dir: std::env::current_dir().unwrap().display().to_string(),
-            file_pattern: "wgen".to_owned(),
+            file_path,
             enabled: true,
+            cur_dir,
         }
     }
 }
@@ -50,18 +54,30 @@ impl PanelExport {
                 ui.label(" x ");
                 ui.add(egui::DragValue::new(&mut self.tiles_v).speed(1.0));
             });
-            ui.label("Export directory");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.export_dir)
-                    .hint_text("Directory")
-                    .desired_width(TEXTEDIT_WIDTH),
-            );
-            ui.label("Export file name");
+            ui.horizontal(|ui| {
+                ui.label("Export file path");
+                if ui.button("Pick...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_directory(&self.cur_dir)
+                        .pick_file()
+                    {
+                        self.file_path = path.display().to_string();
+                        if self.file_path.ends_with(".png") {
+                            self.file_path =
+                                self.file_path.strip_suffix(".png").unwrap().to_owned();
+                        }
+                        self.cur_dir = if path.is_file() {
+                            path.parent().unwrap().to_path_buf()
+                        } else {
+                            path
+                        };
+                    }
+                }
+            });
             ui.horizontal(|ui| {
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.file_pattern)
-                        .hint_text("File pattern")
-                        .desired_width(TEXTEDIT_WIDTH),
+                    egui::TextEdit::singleline(&mut self.file_path)
+                        .desired_width(TEXTEDIT_WIDTH - 80.0),
                 );
                 ui.label("_x*_y*.png");
             });

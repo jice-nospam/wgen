@@ -46,10 +46,7 @@ pub fn export_heightmap(
                     buf[offset + 1] = ((pixel & 0xff00) >> 8) as u8;
                 }
             }
-            let path = format!(
-                "{}/{}_x{}_y{}.png",
-                export_data.export_dir, export_data.file_pattern, tx, ty
-            );
+            let path = format!("{}_x{}_y{}.png", export_data.file_path, tx, ty);
             image::save_buffer(
                 &Path::new(&path),
                 &buf,

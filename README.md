@@ -55,3 +55,14 @@ You can also display a water plane with configurable height and a grid to help v
 Here you can save the current generator configuration (all the steps with their parameters) in a plain text file using RON format. You can also load a previously saved project, erasing the current configuration.
 
 ![Save project UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_project.jpg)
+
+## Exporter
+You can export the resulting heightmap as a single PNG file or several tiled files using this panel.
+
+![Export UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_export.jpg)
+
+File names will be generated using _x?_y? pattern, for example for 2x2 tiles :
+* ..._x0_y0.png
+* ..._x1_y0.png
+* ..._x0_y1.png
+* ..._x1_y1.png

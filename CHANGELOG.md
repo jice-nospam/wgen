@@ -6,6 +6,7 @@
 - improved water erosion algorithm
 - thanks to egui 0.19, UI is now responsive and adapts to any resolution
 - fbm generator is now multi-threaded and much faster
+- export and load/save panels now use a file dialog instead of a simple textbox
 
 ### Fixed
 - seed is now set correctly when loading a project

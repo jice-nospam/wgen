@@ -44,7 +44,12 @@ fn main() {
         depth_buffer: 24,
         ..Default::default()
     };
-    println!("wgen v{} - {} cpus", VERSION, num_cpus::get());
+    println!(
+        "wgen v{} - {} cpus {} cores",
+        VERSION,
+        num_cpus::get(),
+        num_cpus::get_physical()
+    );
     eframe::run_native("wgen", options, Box::new(|_cc| Box::new(MyApp::default())));
 }
 
@@ -184,8 +189,13 @@ impl MyApp {
                 ui.separator();
                 match self.load_save_panel.render(ui) {
                     Some(SaveLoadAction::Load) => {
-                        if let Err(msg) = self.gen_panel.load(&self.load_save_panel.get_file_path()) {
-                            let err_msg = format!("Error while reading project {} : {}", &self.load_save_panel.get_file_path(), msg);
+                        if let Err(msg) = self.gen_panel.load(&self.load_save_panel.get_file_path())
+                        {
+                            let err_msg = format!(
+                                "Error while reading project {} : {}",
+                                &self.load_save_panel.get_file_path(),
+                                msg
+                            );
                             println!("{}", err_msg);
                             self.err_msg = Some(err_msg);
                         } else {
@@ -194,8 +204,13 @@ impl MyApp {
                         }
                     }
                     Some(SaveLoadAction::Save) => {
-                        if let Err(msg) = self.gen_panel.save(&self.load_save_panel.get_file_path()){
-                            let err_msg = format!("Error while writing project {} : {}", &self.load_save_panel.get_file_path(), msg);
+                        if let Err(msg) = self.gen_panel.save(&self.load_save_panel.get_file_path())
+                        {
+                            let err_msg = format!(
+                                "Error while writing project {} : {}",
+                                &self.load_save_panel.get_file_path(),
+                                msg
+                            );
                             println!("{}", err_msg);
                             self.err_msg = Some(err_msg);
                         }
@@ -259,11 +274,12 @@ impl MyApp {
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let wsize = frame.info().window_info.size;
-        let new_size =((wsize.x -340.0 ) * 0.5) as usize;
+        let new_size = ((wsize.x - 340.0) * 0.5) as usize;
         if new_size != self.image_size {
             // handle window resizing
             self.image_size = new_size;
-            self.panel_2d.refresh(self.image_size, self.preview_size as u32, None);
+            self.panel_2d
+                .refresh(self.image_size, self.preview_size as u32, None);
             self.panel_3d = Panel3dView::new(self.image_size as f32);
             self.regen(false, 0);
         }
@@ -288,8 +304,11 @@ impl eframe::App for MyApp {
                 Ok(ThreadMessage::GeneratorStepDone(step, hmap)) => {
                     log(&format!("main<=GeneratorStepDone({})", step));
                     if let Some(ref hmap) = hmap {
-                        self.panel_2d
-                            .refresh(self.image_size, self.preview_size as u32, Some(hmap));
+                        self.panel_2d.refresh(
+                            self.image_size,
+                            self.preview_size as u32,
+                            Some(hmap),
+                        );
                     }
                     self.gen_panel.selected_step = step;
                     self.progress = (step + 1) as f32 / self.gen_panel.enabled_steps() as f32
@@ -329,7 +348,7 @@ impl eframe::App for MyApp {
                 }
                 Ok(ThreadMessage::ExporterDone(res)) => {
                     if let Err(msg) = res {
-                        let err_msg=format!("Error while exporting heightmap : {}", msg);
+                        let err_msg = format!("Error while exporting heightmap : {}", msg);
                         println!("{}", err_msg);
                         self.err_msg = Some(err_msg);
                     }
@@ -349,12 +368,16 @@ impl eframe::App for MyApp {
         self.render_central_panel(ctx);
         if let Some(ref err_msg) = self.err_msg {
             let mut open = true;
-            egui::Window::new("Error").resizable(false).collapsible(false).open(&mut open).show (ctx, |ui| {
-                ui.scope(|ui| {
-                    ui.visuals_mut().override_text_color = Some(egui::Color32::RED);
-                    ui.label(err_msg);
+            egui::Window::new("Error")
+                .resizable(false)
+                .collapsible(false)
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.scope(|ui| {
+                        ui.visuals_mut().override_text_color = Some(egui::Color32::RED);
+                        ui.label(err_msg);
+                    });
                 });
-            });
             if open == false {
                 self.err_msg = None;
             }

@@ -149,8 +149,8 @@ pub fn gen_water_erosion(
     let drop_count = ((size.1 * 2) as f32 * conf.drop_amount) as usize;
     // compute erosion weight depending on radius
     let mut erosion_weight = 0.0;
-    for y in (-conf.radius) as i32..conf.radius as i32 {
-        for x in (-conf.radius) as i32..conf.radius as i32 {
+    for y in (-conf.radius).round() as i32..conf.radius.round() as i32 {
+        for x in (-conf.radius).round() as i32..conf.radius.round() as i32 {
             let dist = ((x * x + y * y) as f32).sqrt();
             if dist < conf.radius {
                 erosion_weight += conf.radius - dist;

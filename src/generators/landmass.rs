@@ -11,6 +11,7 @@ use super::{normalize, report_progress};
 pub struct LandMassConf {
     pub land_proportion: f32,
     pub water_level: f32,
+    pub plain_factor: f32,
 }
 
 impl Default for LandMassConf {
@@ -18,6 +19,7 @@ impl Default for LandMassConf {
         Self {
             land_proportion: 0.6,
             water_level: 0.12,
+            plain_factor: 2.5,
         }
     }
 }
@@ -35,6 +37,14 @@ pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
             egui::DragValue::new(&mut conf.water_level)
                 .speed(0.01)
                 .clamp_range(0.0..=1.0),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("plain factor");
+        ui.add(
+            egui::DragValue::new(&mut conf.plain_factor)
+                .speed(0.01)
+                .clamp_range(1.0..=4.0),
         );
     });
 }
@@ -91,14 +101,15 @@ pub fn gen_landmass(
             report_progress(progress, export, tx.clone());
         }
     }
-    // fix land/mountain ratio using x^3 curve above sea level
+    // fix land/mountain ratio using h^plain_factor curve above sea level
     for y in 0..size.1 {
         let yoff = y * size.0;
         for x in 0..size.0 {
             let mut h = hmap[x + yoff];
             if h >= conf.water_level {
                 let coef = (h - conf.water_level) / (1.0 - conf.water_level);
-                h = conf.water_level + coef * coef * coef * (1.0 - conf.water_level);
+                let coef = coef.powf(conf.plain_factor);
+                h = conf.water_level + coef * (1.0 - conf.water_level);
                 hmap[x + y * size.0] = h;
             }
         }

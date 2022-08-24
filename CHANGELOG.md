@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2022-08-24
+
 ### Changed
 - improved water erosion algorithm
 - thanks to egui 0.19, UI is now responsive and adapts to any resolution

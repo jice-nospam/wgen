@@ -275,7 +275,7 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let wsize = frame.info().window_info.size;
         let new_size = ((wsize.x - 340.0) * 0.5) as usize;
-        if new_size != self.image_size {
+        if new_size != self.image_size && new_size != 0 {
             // handle window resizing
             self.image_size = new_size;
             self.panel_2d

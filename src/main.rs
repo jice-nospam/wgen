@@ -113,7 +113,6 @@ impl Default for MyApp {
 impl MyApp {
     fn export(&mut self) {
         let steps = self.gen_panel.steps.clone();
-        let disabled = self.gen_panel.disabled.clone();
         let export_panel = self.export_panel.clone();
         let seed = self.seed;
         let tx = self.thread2main_tx.clone();
@@ -122,7 +121,6 @@ impl MyApp {
             let res = export_heightmap(
                 seed,
                 &steps,
-                &disabled,
                 &export_panel,
                 tx.clone(),
                 min_progress_step,
@@ -146,7 +144,6 @@ impl MyApp {
             self.main2gen_tx
                 .send(WorldGenCommand::ExecuteStep(
                     i,
-                    self.gen_panel.disabled[i],
                     self.gen_panel.steps[i].clone(),
                     self.panel_2d.live_preview,
                     0.01 * self.gen_panel.enabled_steps() as f32,

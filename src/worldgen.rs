@@ -14,7 +14,7 @@ use crate::{log, ThreadMessage};
 #[derive(Debug)]
 pub enum WorldGenCommand {
     /// step index, disabled, step conf, live preview, min progress step
-    ExecuteStep(usize, bool, Step, bool, f32),
+    ExecuteStep(usize, Step, bool, f32),
     DeleteStep(usize),
     EnableStep(usize),
     DisableStep(usize),
@@ -26,7 +26,8 @@ pub enum WorldGenCommand {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub enum Step {
+/// Each value contains its own configuration, whether this step is disabled and an optional mask
+pub enum StepType {
     Hills(HillsConf),
     Fbm(FbmConf),
     Normalize(NormalizeConf),
@@ -36,10 +37,22 @@ pub enum Step {
     Island(IslandConf),
     MidPoint(MidPointConf),
 }
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct Step {
+    pub disabled: bool,
+    pub mask: Option<Vec<f32>>,
+    pub typ: StepType,
+}
+
+impl Default for Step {
+    fn default() -> Self {
+        Self { disabled: false, mask: None, typ: StepType::Normalize(NormalizeConf::default()) }
+    }
+}
 
 impl Display for Step {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let debug_val = format!("{:?}", self);
+        let debug_val = format!("{:?}", self.typ);
         let val: Vec<&str> = debug_val.split('(').collect();
         write!(f, "{}", val[0])
     }
@@ -84,7 +97,6 @@ pub struct WorldGenerator {
 
 struct InnerStep {
     index: usize,
-    disabled: bool,
     step: Step,
     live: bool,
     min_progress_step: f32,
@@ -104,10 +116,9 @@ fn do_command(
         WorldGenCommand::SetSeed(new_seed) => {
             wgen.seed = new_seed;
         }
-        WorldGenCommand::ExecuteStep(index, disabled, step, live, min_progress_step) => {
+        WorldGenCommand::ExecuteStep(index, step, live, min_progress_step) => {
             steps.push(InnerStep {
                 index,
-                disabled,
                 step,
                 live,
                 min_progress_step,
@@ -160,13 +171,12 @@ pub fn generator_thread(
         if !steps.is_empty() {
             let InnerStep {
                 index,
-                disabled,
                 step,
                 live,
                 min_progress_step,
             } = steps.remove(0);
             let tx2 = tx.clone();
-            wgen.execute_step(index, disabled, &step, false, tx2, min_progress_step);
+            wgen.execute_step(index, &step, false, tx2, min_progress_step);
             if steps.is_empty() {
                 log("wgen=>Done");
                 tx.send(ThreadMessage::GeneratorDone(wgen.get_export_map()))
@@ -227,7 +237,6 @@ impl WorldGenerator {
     fn execute_step(
         &mut self,
         index: usize,
-        disabled: bool,
         step: &Step,
         export: bool,
         tx: Sender<ThreadMessage>,
@@ -256,90 +265,86 @@ impl WorldGenerator {
             }
         }
         let hmap = &mut self.hmap[index];
-        hmap.disabled = disabled;
-        if !hmap.disabled {
-            match step {
-                Step::Hills(conf) => gen_hills(
-                    self.seed,
-                    self.world_size,
-                    &mut hmap.h,
-                    conf,
-                    export,
-                    tx,
-                    min_progress_step,
-                ),
-                Step::Fbm(conf) => gen_fbm(
-                    self.seed,
-                    self.world_size,
-                    &mut hmap.h,
-                    conf,
-                    export,
-                    tx,
-                    min_progress_step,
-                ),
-                Step::MidPoint(conf) => gen_mid_point(
-                    self.seed,
-                    self.world_size,
-                    &mut hmap.h,
-                    conf,
-                    export,
-                    tx,
-                    min_progress_step,
-                ),
-                Step::Normalize(conf) => gen_normalize(&mut hmap.h, conf),
-                Step::LandMass(conf) => gen_landmass(
-                    self.world_size,
-                    &mut hmap.h,
-                    conf,
-                    export,
-                    tx,
-                    min_progress_step,
-                ),
-                Step::MudSlide(conf) => gen_mudslide(
-                    self.world_size,
-                    &mut hmap.h,
-                    conf,
-                    export,
-                    tx,
-                    min_progress_step,
-                ),
-                Step::WaterErosion(conf) => gen_water_erosion(
-                    self.seed,
-                    self.world_size,
-                    &mut hmap.h,
-                    conf,
-                    export,
-                    tx,
-                    min_progress_step,
-                ),
-                Step::Island(conf) => gen_island(
-                    self.world_size,
-                    &mut hmap.h,
-                    conf,
-                    export,
-                    tx,
-                    min_progress_step,
-                ),
-            }
-            log(&format!(
-                "Executed {} in {:.2}s",
-                step,
-                now.elapsed().as_secs_f32()
-            ));
+        match step {
+            Step{typ:StepType::Hills(conf),disabled,mask} => if ! *disabled {gen_hills(
+                self.seed,
+                self.world_size,
+                &mut hmap.h,
+                conf,
+                export,
+                tx,
+                min_progress_step,
+            )},
+            Step{typ:StepType::Fbm(conf),disabled,mask} => if ! *disabled { gen_fbm(
+                self.seed,
+                self.world_size,
+                &mut hmap.h,
+                conf,
+                export,
+                tx,
+                min_progress_step,
+            )},
+            Step{typ:StepType::MidPoint(conf),disabled,mask} => if ! *disabled { gen_mid_point(
+                self.seed,
+                self.world_size,
+                &mut hmap.h,
+                conf,
+                export,
+                tx,
+                min_progress_step,
+            )},
+            Step{typ:StepType::Normalize(conf),disabled,mask} => if ! *disabled { gen_normalize(&mut hmap.h, conf)},
+                Step{typ:StepType::LandMass(conf),disabled,mask} => if ! *disabled { gen_landmass(
+                self.world_size,
+                &mut hmap.h,
+                conf,
+                export,
+                tx,
+                min_progress_step,
+            )},
+            Step{typ:StepType::MudSlide(conf),disabled,mask} => if ! *disabled { gen_mudslide(
+                self.world_size,
+                &mut hmap.h,
+                conf,
+                export,
+                tx,
+                min_progress_step,
+            )},
+            Step{typ:StepType::WaterErosion(conf),disabled,mask} => if ! *disabled { gen_water_erosion(
+                self.seed,
+                self.world_size,
+                &mut hmap.h,
+                conf,
+                export,
+                tx,
+                min_progress_step,
+            )},
+            Step{typ:StepType::Island(conf),disabled,mask} => if ! *disabled { gen_island(
+                self.world_size,
+                &mut hmap.h,
+                conf,
+                export,
+                tx,
+                min_progress_step,
+            )},
         }
+        log(&format!(
+            "Executed {} in {:.2}s",
+            step,
+            now.elapsed().as_secs_f32()
+        ));
     }
 
     pub fn generate(
         &mut self,
         steps: &[Step],
-        disabled: &[bool],
         tx: Sender<ThreadMessage>,
         min_progress_step: f32,
     ) {
         self.clear();
         for (i, step) in steps.iter().enumerate() {
             let tx2 = tx.clone();
-            self.execute_step(i, disabled[i], step, true, tx2, min_progress_step);
+            self.execute_step(i, step, true, tx2, min_progress_step);
             tx.send(ThreadMessage::ExporterStepDone(i)).unwrap();
         }
     }

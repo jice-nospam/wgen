@@ -37,7 +37,7 @@ impl Panel2dView {
     pub fn refresh(&mut self, image_size: usize, preview_size: u32, hmap: Option<&ExportMap>) {
         self.image_size = image_size;
         self.preview_size = preview_size as usize;
-        let mut buff = if let Some(hmap) = hmap {
+        let buff = if let Some(hmap) = hmap {
             let (min, max) = hmap.get_min_max();
             let coef = if max - min > std::f32::EPSILON {
                 1.0 / (max - min)
@@ -52,10 +52,10 @@ impl Panel2dView {
                 Luma([(h * 255.0).clamp(0.0, 255.0) as u8])
             })
         } else {
-            GrayImage::new(1,1)
+            GrayImage::new(1, 1)
         };
         self.buff = image::imageops::resize(
-            &mut buff,
+            &buff,
             self.image_size as u32,
             self.image_size as u32,
             FilterType::Nearest,

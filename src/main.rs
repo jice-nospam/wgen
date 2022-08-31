@@ -118,13 +118,7 @@ impl MyApp {
         let tx = self.thread2main_tx.clone();
         let min_progress_step = 0.01 * self.gen_panel.enabled_steps() as f32;
         thread::spawn(move || {
-            let res = export_heightmap(
-                seed,
-                &steps,
-                &export_panel,
-                tx.clone(),
-                min_progress_step,
-            );
+            let res = export_heightmap(seed, &steps, &export_panel, tx.clone(), min_progress_step);
             tx.send(ThreadMessage::ExporterDone(res)).unwrap();
         });
     }
@@ -186,11 +180,11 @@ impl MyApp {
                 ui.separator();
                 match self.load_save_panel.render(ui) {
                     Some(SaveLoadAction::Load) => {
-                        if let Err(msg) = self.gen_panel.load(&self.load_save_panel.get_file_path())
+                        if let Err(msg) = self.gen_panel.load(self.load_save_panel.get_file_path())
                         {
                             let err_msg = format!(
                                 "Error while reading project {} : {}",
-                                &self.load_save_panel.get_file_path(),
+                                self.load_save_panel.get_file_path(),
                                 msg
                             );
                             println!("{}", err_msg);
@@ -201,11 +195,11 @@ impl MyApp {
                         }
                     }
                     Some(SaveLoadAction::Save) => {
-                        if let Err(msg) = self.gen_panel.save(&self.load_save_panel.get_file_path())
+                        if let Err(msg) = self.gen_panel.save(self.load_save_panel.get_file_path())
                         {
                             let err_msg = format!(
                                 "Error while writing project {} : {}",
-                                &self.load_save_panel.get_file_path(),
+                                self.load_save_panel.get_file_path(),
                                 msg
                             );
                             println!("{}", err_msg);
@@ -253,9 +247,12 @@ impl MyApp {
                 ui.horizontal(|ui| {
                     egui::CollapsingHeader::new("2d preview")
                         .default_open(true)
-                        .show(ui, |ui| match self.panel_2d.render(ui) {
-                            Some(Panel2dAction::ResizePreview(new_size)) => self.resize(new_size),
-                            _ => (),
+                        .show(ui, |ui| {
+                            if let Some(Panel2dAction::ResizePreview(new_size)) =
+                                self.panel_2d.render(ui)
+                            {
+                                self.resize(new_size);
+                            }
                         });
                     egui::CollapsingHeader::new("3d preview")
                         .default_open(true)
@@ -375,7 +372,7 @@ impl eframe::App for MyApp {
                         ui.label(err_msg);
                     });
                 });
-            if open == false {
+            if !open {
                 self.err_msg = None;
             }
         }

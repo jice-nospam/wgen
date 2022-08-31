@@ -137,7 +137,7 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
 pub fn gen_water_erosion(
     seed: u64,
     size: (usize, usize),
-    hmap: &mut Vec<f32>,
+    hmap: &mut [f32],
     conf: &WaterErosionConf,
     export: bool,
     tx: Sender<ThreadMessage>,

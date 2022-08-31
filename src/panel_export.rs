@@ -18,7 +18,7 @@ pub struct PanelExport {
 impl Default for PanelExport {
     fn default() -> Self {
         let cur_dir = std::env::current_dir().unwrap();
-        let file_path = format!("{}/wgen", cur_dir.display().to_string());
+        let file_path = format!("{}/wgen", cur_dir.display());
         Self {
             export_width: 1024.0,
             export_height: 1024.0,

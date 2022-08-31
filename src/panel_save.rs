@@ -16,7 +16,7 @@ pub enum SaveLoadAction {
 impl Default for PanelSaveLoad {
     fn default() -> Self {
         let cur_dir = std::env::current_dir().unwrap();
-        let file_path = format!("{}/my_terrain.wgen", cur_dir.display().to_string());
+        let file_path = format!("{}/my_terrain.wgen", cur_dir.display());
         Self { file_path, cur_dir }
     }
 }

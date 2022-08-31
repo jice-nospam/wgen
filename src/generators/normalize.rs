@@ -14,6 +14,6 @@ impl Default for NormalizeConf {
     }
 }
 
-pub fn gen_normalize(hmap: &mut Vec<f32>, conf: &NormalizeConf) {
+pub fn gen_normalize(hmap: &mut [f32], conf: &NormalizeConf) {
     normalize(hmap, conf.min, conf.max);
 }

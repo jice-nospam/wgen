@@ -51,7 +51,7 @@ pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
 
 pub fn gen_landmass(
     size: (usize, usize),
-    hmap: &mut Vec<f32>,
+    hmap: &mut [f32],
     conf: &LandMassConf,
     export: bool,
     tx: Sender<ThreadMessage>,
@@ -91,7 +91,7 @@ pub fn gen_landmass(
             if h > new_water_level {
                 h = conf.water_level + (h - new_water_level) * land_coef;
             } else {
-                h = h * water_coef;
+                h *= water_coef;
             }
             hmap[x + yoff] = h;
         }

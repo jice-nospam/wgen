@@ -78,9 +78,8 @@ impl PanelGenerator {
     pub fn enabled_steps(&self) -> usize {
         self.steps.iter().filter(|s| !s.disabled).count()
     }
-    pub fn render(&mut self, ui: &mut egui::Ui, progress: f32) -> Option<GeneratorAction> {
+    fn render_header(&mut self, ui: &mut egui::Ui, progress: f32) -> Option<GeneratorAction> {
         let mut action = None;
-        let previous_selected_step = self.selected_step;
         ui.horizontal(|ui| {
             ui.heading("Generators");
             if self.is_running {
@@ -88,7 +87,6 @@ impl PanelGenerator {
             }
         });
         ui.add(egui::ProgressBar::new(progress).show_percentage());
-
         ui.horizontal(|ui| {
             if ui.button("Clear").clicked() {
                 self.steps.clear();
@@ -104,6 +102,11 @@ impl PanelGenerator {
                 action = Some(GeneratorAction::SetSeed(self.seed));
             }
         });
+        action
+    }
+    /// render UI to add a new step
+    fn render_new_step(&mut self, ui: &mut egui::Ui) -> Option<GeneratorAction> {
+        let mut action = None;
         ui.horizontal(|ui| {
             if ui.button("New step").clicked() {
                 self.steps.push(self.cur_step.clone());
@@ -189,9 +192,16 @@ impl PanelGenerator {
                     .on_hover_text("Lower height on the map borders");
                 });
         });
-        ui.end_row();
-        let mut to_remove = None;
-        let mut to_move = None;
+        action
+    }
+    /// render the list of steps of current project
+    fn render_step_list(
+        &mut self,
+        ui: &mut egui::Ui,
+        to_remove: &mut Option<usize>,
+        to_move: &mut Option<usize>,
+    ) -> Option<GeneratorAction> {
+        let mut action = None;
         let len = self.steps.len();
         let dragging = ui.memory().is_anything_being_dragged() && self.hovered;
         let response = ui
@@ -211,7 +221,7 @@ impl PanelGenerator {
                                 ui.output().cursor_icon = CursorIcon::Grab;
                             }
                             if ui.button("⊗").on_hover_text("Delete this step").clicked() {
-                                to_remove = Some(i);
+                                *to_remove = Some(i);
                             }
                             if ui
                                 .button(egui::RichText::new("👁").color(if step.disabled {
@@ -252,7 +262,7 @@ impl PanelGenerator {
                             }
                         });
                     }) {
-                        to_move = Some(i);
+                        *to_move = Some(i);
                         let dest = i as i32 + (dy / 20.0) as i32;
                         self.move_to_pos = dest.clamp(0, len as i32) as usize;
                     }
@@ -260,45 +270,61 @@ impl PanelGenerator {
             })
             .response;
         self.hovered = response.hovered();
+        action
+    }
+    /// render the configuration UI for currently selected step
+    fn render_curstep_conf(&mut self, ui: &mut egui::Ui) -> Option<GeneratorAction> {
+        let mut action = None;
+        match &mut self.steps[self.selected_step] {
+            Step {
+                typ: StepType::Hills(conf),
+                ..
+            } => render_hills(ui, conf),
+            Step {
+                typ: StepType::LandMass(conf),
+                ..
+            } => render_landmass(ui, conf),
+            Step {
+                typ: StepType::MudSlide(conf),
+                ..
+            } => render_mudslide(ui, conf),
+            Step {
+                typ: StepType::Fbm(conf),
+                ..
+            } => render_fbm(ui, conf),
+            Step {
+                typ: StepType::WaterErosion(conf),
+                ..
+            } => render_water_erosion(ui, conf),
+            Step {
+                typ: StepType::Island(conf),
+                ..
+            } => render_island(ui, conf),
+            Step {
+                typ: StepType::MidPoint(conf),
+                ..
+            } => render_mid_point(ui, conf),
+            Step {
+                typ: StepType::Normalize(_),
+                ..
+            } => (),
+        }
+        if ui.button("Refresh").clicked() {
+            action = Some(GeneratorAction::Regen(false, self.selected_step))
+        }
+        action
+    }
+    pub fn render(&mut self, ui: &mut egui::Ui, progress: f32) -> Option<GeneratorAction> {
+        let previous_selected_step = self.selected_step;
+        let mut action = self.render_header(ui, progress);
+        action = action.or(self.render_new_step(ui));
+        ui.end_row();
+        let mut to_remove = None;
+        let mut to_move = None;
+        action = action.or(self.render_step_list(ui, &mut to_remove, &mut to_move));
         ui.separator();
         if !self.steps.is_empty() {
-            match &mut self.steps[self.selected_step] {
-                Step {
-                    typ: StepType::Hills(conf),
-                    ..
-                } => render_hills(ui, conf),
-                Step {
-                    typ: StepType::LandMass(conf),
-                    ..
-                } => render_landmass(ui, conf),
-                Step {
-                    typ: StepType::MudSlide(conf),
-                    ..
-                } => render_mudslide(ui, conf),
-                Step {
-                    typ: StepType::Fbm(conf),
-                    ..
-                } => render_fbm(ui, conf),
-                Step {
-                    typ: StepType::WaterErosion(conf),
-                    ..
-                } => render_water_erosion(ui, conf),
-                Step {
-                    typ: StepType::Island(conf),
-                    ..
-                } => render_island(ui, conf),
-                Step {
-                    typ: StepType::MidPoint(conf),
-                    ..
-                } => render_mid_point(ui, conf),
-                Step {
-                    typ: StepType::Normalize(_),
-                    ..
-                } => (),
-            }
-            if ui.button("Refresh").clicked() {
-                action = Some(GeneratorAction::Regen(false, self.selected_step))
-            }
+            action = action.or(self.render_curstep_conf(ui));
         }
         if previous_selected_step != self.selected_step && action.is_none() {
             action = Some(GeneratorAction::DisplayLayer(self.selected_step))

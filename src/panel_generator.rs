@@ -22,6 +22,7 @@ pub enum GeneratorAction {
     Disable(usize),
     Enable(usize),
     DisplayLayer(usize),
+    DisplayMask(usize),
     SetSeed(u64),
 }
 
@@ -30,6 +31,8 @@ pub struct PanelGenerator {
     version: String,
     #[serde(skip)]
     pub is_running: bool,
+    #[serde(skip)]
+    pub mask_selected: bool,
     pub steps: Vec<Step>,
     cur_step: Step,
     pub selected_step: usize,
@@ -43,6 +46,7 @@ impl Default for PanelGenerator {
         Self {
             version: VERSION.to_owned(),
             is_running: false,
+            mask_selected: false,
             steps: Vec::new(),
             cur_step: Step {
                 typ: StepType::Hills(HillsConf::default()),
@@ -248,17 +252,21 @@ impl PanelGenerator {
                                 .on_hover_text("Add a mask to this step")
                                 .clicked()
                             {
+                                self.mask_selected = true;
+                                self.selected_step = i;
                                 if step.mask.is_none() {
                                     step.mask = Some(Vec::new());
-                                } else {
-                                    step.mask = None;
                                 }
                             }
                             if ui
-                                .selectable_label(self.selected_step == i, step.to_string())
+                                .selectable_label(
+                                    self.selected_step == i && !self.mask_selected,
+                                    step.to_string(),
+                                )
                                 .clicked()
                             {
                                 self.selected_step = i;
+                                self.mask_selected = false;
                             }
                         });
                     }) {
@@ -316,6 +324,7 @@ impl PanelGenerator {
     }
     pub fn render(&mut self, ui: &mut egui::Ui, progress: f32) -> Option<GeneratorAction> {
         let previous_selected_step = self.selected_step;
+        let previous_mask_selected = self.mask_selected;
         let mut action = self.render_header(ui, progress);
         action = action.or(self.render_new_step(ui));
         ui.end_row();
@@ -326,8 +335,15 @@ impl PanelGenerator {
         if !self.steps.is_empty() {
             action = action.or(self.render_curstep_conf(ui));
         }
-        if previous_selected_step != self.selected_step && action.is_none() {
-            action = Some(GeneratorAction::DisplayLayer(self.selected_step))
+        if action.is_none()
+            && (previous_selected_step != self.selected_step
+                || previous_mask_selected != self.mask_selected)
+        {
+            if self.mask_selected {
+                action = Some(GeneratorAction::DisplayMask(self.selected_step));
+            } else {
+                action = Some(GeneratorAction::DisplayLayer(self.selected_step));
+            }
         }
         if let Some(i) = to_remove {
             self.steps.remove(i);

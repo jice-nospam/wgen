@@ -20,6 +20,7 @@ pub enum WorldGenCommand {
     DisableStep(usize),
     SetSize(usize),
     GetStepMap(usize),
+    GetStepMask(usize),
     SetSeed(u64),
     Clear,
     Abort,
@@ -89,6 +90,7 @@ impl ExportMap {
 #[derive(Clone)]
 struct HMap {
     h: Vec<f32>,
+    mask: Option<Vec<f32>>,
     disabled: bool,
 }
 
@@ -141,6 +143,12 @@ fn do_command(
             .send(ThreadMessage::GeneratorStepMap(
                 index,
                 wgen.get_step_export_map(index),
+            ))
+            .unwrap(),
+        WorldGenCommand::GetStepMask(index) => tx
+            .send(ThreadMessage::GeneratorStepMask(
+                index,
+                wgen.get_step_mask(index),
             ))
             .unwrap(),
         WorldGenCommand::Abort => {
@@ -225,6 +233,13 @@ impl WorldGenerator {
             },
         }
     }
+    pub fn get_step_mask(&self, step: usize) -> Option<Vec<f32>> {
+        if step >= self.hmap.len() {
+            None
+        } else {
+            self.hmap[step].mask.clone()
+        }
+    }
     pub fn combined_height(&self, x: usize, y: usize) -> f32 {
         let off = x + y * self.world_size.0;
         if !self.hmap.is_empty() && off < self.world_size.0 * self.world_size.1 {
@@ -252,11 +267,13 @@ impl WorldGenerator {
                 HMap {
                     h: vec![0.0; vecsize],
                     disabled: false,
+                    mask: None,
                 }
             } else {
                 HMap {
                     h: self.hmap[len - 1].h.clone(),
                     disabled: false,
+                    mask: None,
                 }
             });
         } else if index > 0 {

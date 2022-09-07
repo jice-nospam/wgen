@@ -32,6 +32,7 @@ pub enum ThreadMessage {
     GeneratorStepProgress(f32),
     GeneratorStepDone(usize, Option<ExportMap>),
     GeneratorStepMap(usize, ExportMap),
+    GeneratorStepMask(usize, Option<Vec<f32>>),
     ExporterStepDone(usize),
     ExporterDone(Result<(), String>),
     ExporterStepProgress(f32),
@@ -234,7 +235,12 @@ impl MyApp {
                                 .send(WorldGenCommand::GetStepMap(step))
                                 .unwrap();
                         }
-                        _ => (),
+                        Some(GeneratorAction::DisplayMask(step)) => {
+                            self.main2gen_tx
+                                .send(WorldGenCommand::GetStepMask(step))
+                                .unwrap();
+                        }
+                        None => (),
                     }
                 });
             })
@@ -310,6 +316,10 @@ impl eframe::App for MyApp {
                 Ok(ThreadMessage::GeneratorStepMap(_idx, hmap)) => {
                     self.panel_2d
                         .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
+                }
+                Ok(ThreadMessage::GeneratorStepMask(_idx, mask)) => {
+                    self.panel_2d
+                        .display_mask(self.image_size, self.preview_size as u32, mask);
                 }
                 Ok(ThreadMessage::ExporterStepProgress(progress)) => {
                     let progstep = 1.0 / self.gen_panel.enabled_steps() as f32;

@@ -9,6 +9,7 @@ mod panel_2dview;
 mod panel_3dview;
 mod panel_export;
 mod panel_generator;
+mod panel_maskedit;
 mod panel_save;
 mod worldgen;
 

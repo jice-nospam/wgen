@@ -3,7 +3,7 @@ use egui_extras::RetainedImage;
 use epaint::{Color32, ColorImage};
 use image::{imageops::FilterType, GrayImage, Luma};
 
-use crate::{fps::FpsCounter, generators::get_min_max, worldgen::ExportMap};
+use crate::generators::get_min_max;
 
 pub enum PanelMaskEditAction {}
 pub struct PanelMaskEdit {
@@ -18,7 +18,7 @@ pub struct PanelMaskEdit {
 
 impl PanelMaskEdit {
     pub fn new(image_size: usize, preview_size: u32) -> Self {
-        let mut panel = PanelMaskEdit {
+        PanelMaskEdit {
             buff: GrayImage::new(1, 1),
             image_size,
             preview_size: preview_size as usize,
@@ -26,8 +26,7 @@ impl PanelMaskEdit {
             brush_value: 1.0,
             brush_size: 8.0,
             brush_falloff: 0.0,
-        };
-        panel
+        }
     }
     pub fn display_mask(&mut self, image_size: usize, preview_size: u32, mask: Option<Vec<f32>>) {
         self.image_size = image_size;

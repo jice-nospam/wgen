@@ -3,9 +3,7 @@ use egui_extras::RetainedImage;
 use epaint::{Color32, ColorImage};
 use image::{imageops::FilterType, GrayImage, Luma};
 
-use crate::{
-    fps::FpsCounter, generators::get_min_max, panel_maskedit::PanelMaskEdit, worldgen::ExportMap,
-};
+use crate::{fps::FpsCounter, panel_maskedit::PanelMaskEdit, worldgen::ExportMap};
 
 pub enum Panel2dAction {
     ResizePreview(usize),

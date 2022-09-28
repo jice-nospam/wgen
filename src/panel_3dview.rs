@@ -290,10 +290,7 @@ impl Renderer {
                 &CpuMaterial {
                     roughness: 1.0,
                     metallic: 0.0,
-                    albedo_texture: Some(CpuTexture {
-                        data: TextureData::RgbaU8(vec![[50, 35, 30, 255]]),
-                        ..Default::default()
-                    }),
+                    albedo: Color::new_opaque(45, 30, 25),
                     ..Default::default()
                 },
             )
@@ -528,10 +525,7 @@ fn build_water_plane(three_d: &three_d::Context) -> Model<PhysicalMaterial> {
         &CpuMaterial {
             roughness: 0.1,
             metallic: 0.2,
-            albedo_texture: Some(CpuTexture {
-                data: TextureData::RgbaU8(vec![[50, 60, 200, 255]]),
-                ..Default::default()
-            }),
+            albedo: Color::new_opaque(50, 60, 150),
             ..Default::default()
         },
     )

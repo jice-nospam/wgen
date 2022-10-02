@@ -12,6 +12,9 @@ use three_d::{
 
 pub enum PanelMaskEditAction {}
 
+/// maximum size of the brush relative to the canvas
+const MAX_BRUSH_SIZE: f32 = 0.25;
+
 #[derive(Clone, Copy)]
 pub struct BrushConfig {
     pub brush_value: f32,
@@ -84,21 +87,26 @@ impl PanelMaskEdit {
             egui::Vec2::splat(self.image_size as f32),
             egui::Sense::drag(),
         );
-        let _lbutton = ui.input().pointer.button_down(PointerButton::Primary);
-        let _rbutton = ui.input().pointer.button_down(PointerButton::Secondary);
-        let _mbutton = ui.input().pointer.button_down(PointerButton::Middle);
+        let lbutton = ui.input().pointer.button_down(PointerButton::Primary);
+        let rbutton = ui.input().pointer.button_down(PointerButton::Secondary);
+        let mbutton = ui.input().pointer.button_down(PointerButton::Middle);
         let mut mouse_pos = ui.input().pointer.hover_pos();
         let to_screen = emath::RectTransform::from_to(
             Rect::from_min_size(Pos2::ZERO, response.rect.square_proportions()),
             response.rect,
         );
         let from_screen = to_screen.inverse();
-        if let Some(pos) = mouse_pos {
-            mouse_pos = Some(from_screen * pos);
-        }
-        let mesh_updated = self.mesh_updated;
+        let mut mesh_updated = self.mesh_updated;
         let brush_updated = self.brush_updated;
         let brush_config = self.conf;
+        if let Some(pos) = mouse_pos {
+            let canvas_pos = from_screen * pos;
+            mouse_pos = Some(canvas_pos);
+            if (lbutton || rbutton || mbutton) && in_canvas(canvas_pos) {
+                self.update_mask(canvas_pos, lbutton, rbutton, brush_config);
+                mesh_updated = true;
+            }
+        }
         let mask = if mesh_updated {
             self.mask.clone()
         } else {
@@ -123,6 +131,57 @@ impl PanelMaskEdit {
         ui.painter().add(callback);
         self.mesh_updated = false;
     }
+
+    fn update_mask(
+        &mut self,
+        canvas_pos: Pos2,
+        lbutton: bool,
+        rbutton: bool,
+        brush_config: BrushConfig,
+    ) {
+        if let Some(ref mut mask) = self.mask {
+            let mx = canvas_pos.x * self.preview_size as f32;
+            let my = (1.0 - canvas_pos.y) * self.preview_size as f32;
+            let half_size = brush_config.brush_size * self.preview_size as f32 * MAX_BRUSH_SIZE;
+            let falloff_dist = (1.0 - brush_config.brush_falloff) * half_size;
+            let minx = (mx - half_size).max(0.0) as usize;
+            let maxx = ((mx + half_size) as usize).min(self.preview_size);
+            let miny = (my - half_size).max(0.0) as usize;
+            let maxy = ((my + half_size) as usize).min(self.preview_size);
+            for y in miny..maxy {
+                let dy = y as f32 - my;
+                let yoff = y * self.preview_size;
+                for x in minx..maxx {
+                    let dx = x as f32 - mx;
+                    // distance from brush center
+                    let dist = (dx * dx + dy * dy).sqrt();
+                    if dist >= half_size {
+                        // out of the brush
+                        continue;
+                    }
+                    let alpha = if dist < falloff_dist {
+                        1.0
+                    } else {
+                        1.0 - (dist - falloff_dist) / (half_size - falloff_dist)
+                    };
+                    let target_value = if lbutton {
+                        0.0
+                    } else if rbutton {
+                        1.0
+                    } else {
+                        // mbutton
+                        brush_config.brush_value
+                    };
+                    let current_value = mask[x + yoff];
+                    mask[x + yoff] = current_value + alpha * (target_value - current_value);
+                }
+            }
+        }
+    }
+}
+
+fn in_canvas(canvas_pos: Pos2) -> bool {
+    canvas_pos.x >= 0.0 && canvas_pos.x <= 1.0 && canvas_pos.y >= 0.0 && canvas_pos.y <= 1.0
 }
 
 fn with_three_d_context<R>(
@@ -265,7 +324,7 @@ impl Renderer {
                 5.0 - mouse_pos.y * 10.0,
                 0.1,
             ));
-            let scale = Mat4::from_scale(brush_conf.brush_size * 2.5);
+            let scale = Mat4::from_scale(brush_conf.brush_size * 10.0 * MAX_BRUSH_SIZE);
             self.brush_model.set_transformation(transfo * scale);
             self.brush_model.render(&camera, &[]).unwrap();
         }

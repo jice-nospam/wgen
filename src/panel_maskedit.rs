@@ -7,13 +7,17 @@ use three_d::{
 };
 
 pub enum PanelMaskEditAction {}
+
+pub struct BrushConfig {
+    pub brush_value: f32,
+    pub brush_size: f32,
+    pub brush_falloff: f32,
+}
 pub struct PanelMaskEdit {
     image_size: usize,
     preview_size: usize,
     mask: Option<Vec<f32>>,
-    brush_value: f32,
-    brush_size: f32,
-    brush_falloff: f32,
+    conf: BrushConfig,
     mesh_updated: bool,
 }
 
@@ -23,9 +27,11 @@ impl PanelMaskEdit {
             image_size,
             preview_size: preview_size as usize,
             mask: None,
-            brush_value: 1.0,
-            brush_size: 8.0,
-            brush_falloff: 0.0,
+            conf: BrushConfig {
+                brush_value: 1.0,
+                brush_size: 0.5,
+                brush_falloff: 0.5,
+            },
             mesh_updated: false,
         }
     }
@@ -37,13 +43,30 @@ impl PanelMaskEdit {
     }
     pub fn render(&mut self, ui: &mut egui::Ui) -> Option<PanelMaskEditAction> {
         ui.vertical(|ui| {
-            // if let Some(img) = &self.img {
-            //     img.show(ui);
-            // }
             egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
                 self.render_3dview(ui);
             });
-            ui.label("Use left and right mouse buttons to edit the mask");
+            ui.label("mouse buttons : left increase, right decrease, middle set brush value");
+            ui.horizontal(|ui| {
+                ui.label("brush size");
+                ui.add(
+                    egui::DragValue::new(&mut self.conf.brush_size)
+                        .speed(0.01)
+                        .clamp_range(1.0 / (self.preview_size as f32)..=1.0),
+                );
+                ui.label("falloff");
+                ui.add(
+                    egui::DragValue::new(&mut self.conf.brush_falloff)
+                        .speed(0.01)
+                        .clamp_range(0.0..=1.0),
+                );
+                ui.label("value");
+                ui.add(
+                    egui::DragValue::new(&mut self.conf.brush_value)
+                        .speed(0.01)
+                        .clamp_range(0.0..=1.0),
+                );
+            });
         });
         None
     }

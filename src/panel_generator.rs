@@ -254,9 +254,6 @@ impl PanelGenerator {
                             {
                                 self.mask_selected = true;
                                 self.selected_step = i;
-                                if step.mask.is_none() {
-                                    step.mask = Some(Vec::new());
-                                }
                             }
                             if ui
                                 .selectable_label(

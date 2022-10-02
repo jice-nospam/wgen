@@ -33,16 +33,18 @@ impl Panel2dView {
             preview_size: preview_size as usize,
             fps_counter: FpsCounter::default(),
             img: None,
-            mask_editor: PanelMaskEdit::new(image_size, preview_size),
+            mask_editor: PanelMaskEdit::new(image_size),
         };
         panel.refresh(image_size, preview_size, Some(hmap));
         panel
     }
+    pub fn get_current_mask(&self) -> Option<Vec<f32>> {
+        self.mask_editor.get_mask()
+    }
     pub fn display_mask(&mut self, image_size: usize, preview_size: u32, mask: Option<Vec<f32>>) {
         self.image_size = image_size;
         self.preview_size = preview_size as usize;
-        self.mask_editor
-            .display_mask(image_size, preview_size, mask);
+        self.mask_editor.display_mask(image_size, mask);
         self.mask_mode = true;
     }
     pub fn refresh(&mut self, image_size: usize, preview_size: u32, hmap: Option<&ExportMap>) {

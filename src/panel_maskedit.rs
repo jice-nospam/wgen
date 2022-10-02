@@ -10,6 +10,8 @@ use three_d::{
     Indices, Mat4, Model, Object, Positions, Viewport,
 };
 
+use crate::MASK_SIZE;
+
 pub enum PanelMaskEditAction {}
 
 /// maximum size of the brush relative to the canvas
@@ -23,7 +25,6 @@ pub struct BrushConfig {
 }
 pub struct PanelMaskEdit {
     image_size: usize,
-    preview_size: usize,
     mask: Option<Vec<f32>>,
     conf: BrushConfig,
     mesh_updated: bool,
@@ -31,10 +32,9 @@ pub struct PanelMaskEdit {
 }
 
 impl PanelMaskEdit {
-    pub fn new(image_size: usize, preview_size: u32) -> Self {
+    pub fn new(image_size: usize) -> Self {
         PanelMaskEdit {
             image_size,
-            preview_size: preview_size as usize,
             mask: None,
             conf: BrushConfig {
                 brush_value: 1.0,
@@ -45,11 +45,13 @@ impl PanelMaskEdit {
             brush_updated: false,
         }
     }
-    pub fn display_mask(&mut self, image_size: usize, preview_size: u32, mask: Option<Vec<f32>>) {
+    pub fn get_mask(&self) -> Option<Vec<f32>> {
+        self.mask.clone()
+    }
+    pub fn display_mask(&mut self, image_size: usize, mask: Option<Vec<f32>>) {
         self.image_size = image_size;
-        self.preview_size = preview_size as usize;
         self.mesh_updated = true;
-        self.mask = mask.or_else(|| Some(vec![1.0; (preview_size * preview_size) as usize]));
+        self.mask = mask.or_else(|| Some(vec![1.0; MASK_SIZE * MASK_SIZE]));
     }
     pub fn render(&mut self, ui: &mut egui::Ui) -> Option<PanelMaskEditAction> {
         ui.vertical(|ui| {
@@ -62,7 +64,7 @@ impl PanelMaskEdit {
                 ui.add(
                     egui::DragValue::new(&mut self.conf.brush_size)
                         .speed(0.01)
-                        .clamp_range(1.0 / (self.preview_size as f32)..=1.0),
+                        .clamp_range(1.0 / (MASK_SIZE as f32)..=1.0),
                 );
                 ui.label("falloff");
                 let old_falloff = self.conf.brush_falloff;
@@ -100,6 +102,7 @@ impl PanelMaskEdit {
         let brush_updated = self.brush_updated;
         let brush_config = self.conf;
         if let Some(pos) = mouse_pos {
+            // mouse position in canvas from 0.0,0.0 (bottom left) to 1.0,1.0 (top right)
             let canvas_pos = from_screen * pos;
             mouse_pos = Some(canvas_pos);
             if (lbutton || rbutton || mbutton) && in_canvas(canvas_pos) {
@@ -112,7 +115,6 @@ impl PanelMaskEdit {
         } else {
             None
         };
-        let mask_size = self.preview_size;
         // TODO handle mouse clicks
         let callback = egui::PaintCallback {
             rect,
@@ -122,7 +124,7 @@ impl PanelMaskEdit {
                         renderer.update_brush(three_d, brush_config);
                     }
                     if mesh_updated {
-                        renderer.update_model(three_d, mask_size, &mask);
+                        renderer.update_model(three_d, &mask);
                     }
                     renderer.render(three_d, &info, mouse_pos, brush_config);
                 });
@@ -140,17 +142,17 @@ impl PanelMaskEdit {
         brush_config: BrushConfig,
     ) {
         if let Some(ref mut mask) = self.mask {
-            let mx = canvas_pos.x * self.preview_size as f32;
-            let my = (1.0 - canvas_pos.y) * self.preview_size as f32;
-            let half_size = brush_config.brush_size * self.preview_size as f32 * MAX_BRUSH_SIZE;
+            let mx = canvas_pos.x * MASK_SIZE as f32;
+            let my = canvas_pos.y * MASK_SIZE as f32;
+            let half_size = brush_config.brush_size * MASK_SIZE as f32 * MAX_BRUSH_SIZE;
             let falloff_dist = (1.0 - brush_config.brush_falloff) * half_size;
             let minx = (mx - half_size).max(0.0) as usize;
-            let maxx = ((mx + half_size) as usize).min(self.preview_size);
+            let maxx = ((mx + half_size) as usize).min(MASK_SIZE);
             let miny = (my - half_size).max(0.0) as usize;
-            let maxy = ((my + half_size) as usize).min(self.preview_size);
+            let maxy = ((my + half_size) as usize).min(MASK_SIZE);
             for y in miny..maxy {
                 let dy = y as f32 - my;
-                let yoff = y * self.preview_size;
+                let yoff = y * MASK_SIZE;
                 for x in minx..maxx {
                     let dx = x as f32 - mx;
                     // distance from brush center
@@ -226,38 +228,34 @@ impl Renderer {
         }
     }
     pub fn update_brush(&mut self, three_d: &three_d::Context, brush_conf: BrushConfig) {
+        // TODO only move inner ring vertices instead of recreating everything
         self.brush_model = build_brush(three_d, brush_conf.brush_falloff);
     }
-    pub fn update_model(
-        &mut self,
-        three_d: &three_d::Context,
-        mask_size: usize,
-        mask: &Option<Vec<f32>>,
-    ) {
+    pub fn update_model(&mut self, three_d: &three_d::Context, mask: &Option<Vec<f32>>) {
         if let Some(mask) = mask {
             // TODO only update colors if the model is already created
-            let mut vertices = Vec::with_capacity(mask_size * mask_size);
-            let mut indices = Vec::with_capacity(6 * (mask_size - 1) * (mask_size - 1));
-            let mut colors = Vec::with_capacity(mask_size * mask_size);
-            for y in 0..mask_size {
-                let vy = y as f32 / (mask_size - 1) as f32 * 10.0 - 5.0;
-                let yoff = y * mask_size;
-                for x in 0..mask_size {
-                    let vx = x as f32 / (mask_size - 1) as f32 * 10.0 - 5.0;
+            let mut vertices = Vec::with_capacity(MASK_SIZE * MASK_SIZE);
+            let mut indices = Vec::with_capacity(6 * (MASK_SIZE - 1) * (MASK_SIZE - 1));
+            let mut colors = Vec::with_capacity(MASK_SIZE * MASK_SIZE);
+            for y in 0..MASK_SIZE {
+                let vy = y as f32 / (MASK_SIZE - 1) as f32 * 10.0 - 5.0;
+                let yoff = (MASK_SIZE - 1 - y) * MASK_SIZE;
+                for x in 0..MASK_SIZE {
+                    let vx = x as f32 / (MASK_SIZE - 1) as f32 * 10.0 - 5.0;
                     let rgb_val = (mask[yoff + x] * 255.0).clamp(0.0, 255.0) as u8;
                     vertices.push(three_d::vec3(vx, vy, 0.0));
                     colors.push(Color::new_opaque(rgb_val, rgb_val, rgb_val));
                 }
             }
-            for y in 0..mask_size - 1 {
-                let y_offset = y * mask_size;
-                for x in 0..mask_size - 1 {
+            for y in 0..MASK_SIZE - 1 {
+                let y_offset = y * MASK_SIZE;
+                for x in 0..MASK_SIZE - 1 {
                     let off = x + y_offset;
                     indices.push((off) as u32);
-                    indices.push((off + mask_size) as u32);
+                    indices.push((off + MASK_SIZE) as u32);
                     indices.push((off + 1) as u32);
-                    indices.push((off + mask_size) as u32);
-                    indices.push((off + mask_size + 1) as u32);
+                    indices.push((off + MASK_SIZE) as u32);
+                    indices.push((off + MASK_SIZE + 1) as u32);
                     indices.push((off + 1) as u32);
                 }
             }
@@ -331,6 +329,7 @@ impl Renderer {
     }
 }
 
+/// build a circular mesh with a double ring : one opaque 32 vertices inner ring and one transparent 64 vertices outer ring
 fn build_brush(three_d: &three_d::Context, falloff: f32) -> Model<ColorMaterial> {
     const VERTICES_COUNT: usize = 1 + 32 + 64;
     let mut colors = Vec::with_capacity(VERTICES_COUNT);

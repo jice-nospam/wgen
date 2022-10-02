@@ -9,7 +9,7 @@ use crate::generators::{
     gen_water_erosion, get_min_max, FbmConf, HillsConf, IslandConf, LandMassConf, MidPointConf,
     MudSlideConf, NormalizeConf, WaterErosionConf,
 };
-use crate::{log, ThreadMessage};
+use crate::{log, ThreadMessage, MASK_SIZE};
 
 #[derive(Debug)]
 pub enum WorldGenCommand {
@@ -20,7 +20,6 @@ pub enum WorldGenCommand {
     DisableStep(usize),
     SetSize(usize),
     GetStepMap(usize),
-    GetStepMask(usize),
     SetSeed(u64),
     Clear,
     Abort,
@@ -90,7 +89,6 @@ impl ExportMap {
 #[derive(Clone)]
 struct HMap {
     h: Vec<f32>,
-    mask: Option<Vec<f32>>,
     disabled: bool,
 }
 
@@ -143,12 +141,6 @@ fn do_command(
             .send(ThreadMessage::GeneratorStepMap(
                 index,
                 wgen.get_step_export_map(index),
-            ))
-            .unwrap(),
-        WorldGenCommand::GetStepMask(index) => tx
-            .send(ThreadMessage::GeneratorStepMask(
-                index,
-                wgen.get_step_mask(index),
             ))
             .unwrap(),
         WorldGenCommand::Abort => {
@@ -233,13 +225,7 @@ impl WorldGenerator {
             },
         }
     }
-    pub fn get_step_mask(&self, step: usize) -> Option<Vec<f32>> {
-        if step >= self.hmap.len() {
-            None
-        } else {
-            self.hmap[step].mask.clone()
-        }
-    }
+
     pub fn combined_height(&self, x: usize, y: usize) -> f32 {
         let off = x + y * self.world_size.0;
         if !self.hmap.is_empty() && off < self.world_size.0 * self.world_size.1 {
@@ -267,13 +253,11 @@ impl WorldGenerator {
                 HMap {
                     h: vec![0.0; vecsize],
                     disabled: false,
-                    mask: None,
                 }
             } else {
                 HMap {
                     h: self.hmap[len - 1].h.clone(),
                     disabled: false,
-                    mask: None,
                 }
             });
         } else if index > 0 {
@@ -281,134 +265,145 @@ impl WorldGenerator {
         } else {
             self.hmap[index].h.fill(0.0);
         }
-        let hmap = &mut self.hmap[index];
-        match step {
-            Step {
-                typ: StepType::Hills(conf),
-                disabled,
-                mask,
-            } => {
-                if !*disabled {
-                    gen_hills(
-                        self.seed,
-                        self.world_size,
-                        &mut hmap.h,
-                        conf,
-                        export,
-                        tx,
-                        min_progress_step,
-                    )
+        {
+            let hmap = &mut self.hmap[index];
+            match step {
+                Step {
+                    typ: StepType::Hills(conf),
+                    disabled,
+                    ..
+                } => {
+                    if !*disabled {
+                        gen_hills(
+                            self.seed,
+                            self.world_size,
+                            &mut hmap.h,
+                            conf,
+                            export,
+                            tx,
+                            min_progress_step,
+                        );
+                    }
                 }
-            }
-            Step {
-                typ: StepType::Fbm(conf),
-                disabled,
-                mask,
-            } => {
-                if !*disabled {
-                    gen_fbm(
-                        self.seed,
-                        self.world_size,
-                        &mut hmap.h,
-                        conf,
-                        export,
-                        tx,
-                        min_progress_step,
-                    )
+                Step {
+                    typ: StepType::Fbm(conf),
+                    disabled,
+                    ..
+                } => {
+                    if !*disabled {
+                        gen_fbm(
+                            self.seed,
+                            self.world_size,
+                            &mut hmap.h,
+                            conf,
+                            export,
+                            tx,
+                            min_progress_step,
+                        );
+                    }
                 }
-            }
-            Step {
-                typ: StepType::MidPoint(conf),
-                disabled,
-                mask,
-            } => {
-                if !*disabled {
-                    gen_mid_point(
-                        self.seed,
-                        self.world_size,
-                        &mut hmap.h,
-                        conf,
-                        export,
-                        tx,
-                        min_progress_step,
-                    )
+                Step {
+                    typ: StepType::MidPoint(conf),
+                    disabled,
+                    ..
+                } => {
+                    if !*disabled {
+                        gen_mid_point(
+                            self.seed,
+                            self.world_size,
+                            &mut hmap.h,
+                            conf,
+                            export,
+                            tx,
+                            min_progress_step,
+                        );
+                    }
                 }
-            }
-            Step {
-                typ: StepType::Normalize(conf),
-                disabled,
-                mask,
-            } => {
-                if !*disabled {
-                    gen_normalize(&mut hmap.h, conf)
+                Step {
+                    typ: StepType::Normalize(conf),
+                    disabled,
+                    ..
+                } => {
+                    if !*disabled {
+                        gen_normalize(&mut hmap.h, conf);
+                    }
                 }
-            }
-            Step {
-                typ: StepType::LandMass(conf),
-                disabled,
-                mask,
-            } => {
-                if !*disabled {
-                    gen_landmass(
-                        self.world_size,
-                        &mut hmap.h,
-                        conf,
-                        export,
-                        tx,
-                        min_progress_step,
-                    )
+                Step {
+                    typ: StepType::LandMass(conf),
+                    disabled,
+                    ..
+                } => {
+                    if !*disabled {
+                        gen_landmass(
+                            self.world_size,
+                            &mut hmap.h,
+                            conf,
+                            export,
+                            tx,
+                            min_progress_step,
+                        );
+                    }
                 }
-            }
-            Step {
-                typ: StepType::MudSlide(conf),
-                disabled,
-                mask,
-            } => {
-                if !*disabled {
-                    gen_mudslide(
-                        self.world_size,
-                        &mut hmap.h,
-                        conf,
-                        export,
-                        tx,
-                        min_progress_step,
-                    )
+                Step {
+                    typ: StepType::MudSlide(conf),
+                    disabled,
+                    ..
+                } => {
+                    if !*disabled {
+                        gen_mudslide(
+                            self.world_size,
+                            &mut hmap.h,
+                            conf,
+                            export,
+                            tx,
+                            min_progress_step,
+                        );
+                    }
                 }
-            }
-            Step {
-                typ: StepType::WaterErosion(conf),
-                disabled,
-                mask,
-            } => {
-                if !*disabled {
-                    gen_water_erosion(
-                        self.seed,
-                        self.world_size,
-                        &mut hmap.h,
-                        conf,
-                        export,
-                        tx,
-                        min_progress_step,
-                    )
+                Step {
+                    typ: StepType::WaterErosion(conf),
+                    disabled,
+                    ..
+                } => {
+                    if !*disabled {
+                        gen_water_erosion(
+                            self.seed,
+                            self.world_size,
+                            &mut hmap.h,
+                            conf,
+                            export,
+                            tx,
+                            min_progress_step,
+                        );
+                    }
                 }
-            }
-            Step {
-                typ: StepType::Island(conf),
-                disabled,
-                mask,
-            } => {
-                if !*disabled {
-                    gen_island(
-                        self.world_size,
-                        &mut hmap.h,
-                        conf,
-                        export,
-                        tx,
-                        min_progress_step,
-                    )
+                Step {
+                    typ: StepType::Island(conf),
+                    disabled,
+                    ..
+                } => {
+                    if !*disabled {
+                        gen_island(
+                            self.world_size,
+                            &mut hmap.h,
+                            conf,
+                            export,
+                            tx,
+                            min_progress_step,
+                        );
+                    }
                 }
             }
         }
+        if let Some(ref mask) = step.mask {
+            if index > 0 {
+                let prev = self.hmap[index - 1].h.clone();
+                apply_mask(self.world_size, mask, Some(&prev), &mut self.hmap[index].h);
+            } else {
+                apply_mask(self.world_size, mask, None, &mut self.hmap[index].h);
+            }
+        }
+
         log(&format!(
             "Executed {} in {:.2}s",
             step,
@@ -430,6 +425,42 @@ impl WorldGenerator {
             (0.0, 0.0)
         } else {
             get_min_max(&self.hmap[self.hmap.len() - 1].h)
+        }
+    }
+}
+
+fn apply_mask(world_size: (usize, usize), mask: &[f32], prev: Option<&[f32]>, h: &mut [f32]) {
+    let mut off = 0;
+    let (min, _) = if prev.is_none() {
+        get_min_max(h)
+    } else {
+        (0.0, 0.0)
+    };
+    for y in 0..world_size.1 {
+        let myf = (y * MASK_SIZE) as f32 / world_size.0 as f32;
+        let my = myf as usize;
+        let yalpha = myf.fract();
+        for x in 0..world_size.0 {
+            let mxf = (x * MASK_SIZE) as f32 / world_size.0 as f32;
+            let mx = mxf as usize;
+            let xalpha = mxf.fract();
+            let mut mask_value = mask[mx + my * MASK_SIZE];
+            if mx + 1 < MASK_SIZE {
+                mask_value = (1.0 - xalpha) * mask_value + xalpha * mask[mx + 1 + my * MASK_SIZE];
+                if my + 1 < MASK_SIZE {
+                    let bottom_left_mask = mask[mx + (my + 1) * MASK_SIZE];
+                    let bottom_right_mask = mask[mx + 1 + (my + 1) * MASK_SIZE];
+                    let bottom_mask =
+                        (1.0 - xalpha) * bottom_left_mask + xalpha * bottom_right_mask;
+                    mask_value = (1.0 - yalpha) * mask_value + yalpha * bottom_mask;
+                }
+            }
+            if let Some(prev) = prev {
+                h[off] = (1.0 - mask_value) * prev[off] + mask_value * h[off];
+            } else {
+                h[off] = (1.0 - mask_value) * min + mask_value * (h[off] - min);
+            }
+            off += 1;
         }
     }
 }

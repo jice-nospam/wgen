@@ -44,6 +44,7 @@ fn main() {
         maximized: true,
         multisampling: 8,
         depth_buffer: 24,
+        vsync: true,
         ..Default::default()
     };
     println!(

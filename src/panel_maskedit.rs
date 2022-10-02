@@ -29,6 +29,7 @@ pub struct PanelMaskEdit {
     conf: BrushConfig,
     mesh_updated: bool,
     brush_updated: bool,
+    prev_frame_time: f64,
 }
 
 impl PanelMaskEdit {
@@ -37,12 +38,13 @@ impl PanelMaskEdit {
             image_size,
             mask: None,
             conf: BrushConfig {
-                brush_value: 1.0,
+                brush_value: 0.5,
                 brush_size: 0.5,
                 brush_falloff: 0.5,
             },
             mesh_updated: false,
             brush_updated: false,
+            prev_frame_time: -1.0,
         }
     }
     pub fn get_mask(&self) -> Option<Vec<f32>> {
@@ -58,7 +60,17 @@ impl PanelMaskEdit {
             egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
                 self.render_3dview(ui);
             });
-            ui.label("mouse buttons : left increase, right decrease, middle set brush value");
+            ui.horizontal(|ui| {
+                ui.label("mouse buttons : left increase, right decrease, middle set brush value");
+                if ui.input().pointer.button_down(PointerButton::Primary)
+                    || ui.input().pointer.button_down(PointerButton::Secondary)
+                    || ui.input().pointer.button_down(PointerButton::Middle)
+                {
+                    ui.add(egui::Spinner::new());
+                } else {
+                    self.prev_frame_time = -1.0;
+                }
+            });
             ui.horizontal(|ui| {
                 ui.label("brush size");
                 ui.add(
@@ -101,12 +113,21 @@ impl PanelMaskEdit {
         let mut mesh_updated = self.mesh_updated;
         let brush_updated = self.brush_updated;
         let brush_config = self.conf;
+        let time = if self.prev_frame_time == -1.0 {
+            self.prev_frame_time = ui.input().time;
+            0.0
+        } else {
+            let t = ui.input().time;
+            let elapsed = t - self.prev_frame_time;
+            self.prev_frame_time = t;
+            elapsed
+        };
         if let Some(pos) = mouse_pos {
             // mouse position in canvas from 0.0,0.0 (bottom left) to 1.0,1.0 (top right)
             let canvas_pos = from_screen * pos;
             mouse_pos = Some(canvas_pos);
             if (lbutton || rbutton || mbutton) && in_canvas(canvas_pos) {
-                self.update_mask(canvas_pos, lbutton, rbutton, brush_config);
+                self.update_mask(canvas_pos, lbutton, rbutton, brush_config, time as f32);
                 mesh_updated = true;
             }
         }
@@ -140,16 +161,27 @@ impl PanelMaskEdit {
         lbutton: bool,
         rbutton: bool,
         brush_config: BrushConfig,
+        time: f32,
     ) {
         if let Some(ref mut mask) = self.mask {
             let mx = canvas_pos.x * MASK_SIZE as f32;
             let my = canvas_pos.y * MASK_SIZE as f32;
-            let half_size = brush_config.brush_size * MASK_SIZE as f32 * MAX_BRUSH_SIZE;
-            let falloff_dist = (1.0 - brush_config.brush_falloff) * half_size;
-            let minx = (mx - half_size).max(0.0) as usize;
-            let maxx = ((mx + half_size) as usize).min(MASK_SIZE);
-            let miny = (my - half_size).max(0.0) as usize;
-            let maxy = ((my + half_size) as usize).min(MASK_SIZE);
+            let brush_radius = brush_config.brush_size * MASK_SIZE as f32 * MAX_BRUSH_SIZE;
+            let falloff_dist = (1.0 - brush_config.brush_falloff) * brush_radius;
+            let minx = (mx - brush_radius).max(0.0) as usize;
+            let maxx = ((mx + brush_radius) as usize).min(MASK_SIZE);
+            let miny = (my - brush_radius).max(0.0) as usize;
+            let maxy = ((my + brush_radius) as usize).min(MASK_SIZE);
+            let target_value = if lbutton {
+                0.0
+            } else if rbutton {
+                1.0
+            } else {
+                // mbutton
+                brush_config.brush_value
+            };
+            let brush_coef = 1.0 / (brush_radius - falloff_dist);
+            println!("{}", time);
             for y in miny..maxy {
                 let dy = y as f32 - my;
                 let yoff = y * MASK_SIZE;
@@ -157,25 +189,18 @@ impl PanelMaskEdit {
                     let dx = x as f32 - mx;
                     // distance from brush center
                     let dist = (dx * dx + dy * dy).sqrt();
-                    if dist >= half_size {
+                    if dist >= brush_radius {
                         // out of the brush
                         continue;
                     }
                     let alpha = if dist < falloff_dist {
                         1.0
                     } else {
-                        1.0 - (dist - falloff_dist) / (half_size - falloff_dist)
-                    };
-                    let target_value = if lbutton {
-                        0.0
-                    } else if rbutton {
-                        1.0
-                    } else {
-                        // mbutton
-                        brush_config.brush_value
+                        1.0 - (dist - falloff_dist) * brush_coef
                     };
                     let current_value = mask[x + yoff];
-                    mask[x + yoff] = current_value + alpha * (target_value - current_value);
+                    mask[x + yoff] =
+                        current_value + time * 10.0 * alpha * (target_value - current_value);
                 }
             }
         }

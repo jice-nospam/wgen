@@ -9,6 +9,7 @@ mod panel_2dview;
 mod panel_3dview;
 mod panel_export;
 mod panel_generator;
+mod panel_maskedit;
 mod panel_save;
 mod worldgen;
 
@@ -26,6 +27,7 @@ use panel_save::{PanelSaveLoad, SaveLoadAction};
 use worldgen::{generator_thread, ExportMap, WorldGenCommand, WorldGenerator};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const MASK_SIZE: usize = 64;
 
 pub enum ThreadMessage {
     GeneratorDone(ExportMap),
@@ -42,6 +44,7 @@ fn main() {
         maximized: true,
         multisampling: 8,
         depth_buffer: 24,
+        vsync: true,
         ..Default::default()
     };
     println!(
@@ -66,6 +69,7 @@ struct MyApp {
     export_panel: PanelExport,
     panel_3d: Panel3dView,
     panel_2d: Panel2dView,
+    mask_step: Option<usize>,
     load_save_panel: PanelSaveLoad,
     thread2main_rx: Receiver<ThreadMessage>,
     main2gen_tx: Sender<WorldGenCommand>,
@@ -99,6 +103,7 @@ impl Default for MyApp {
             exporter_progress: 1.0,
             exporter_text: String::new(),
             exporter_cur_step: 0,
+            mask_step: None,
             gen_panel: PanelGenerator::default(),
             export_panel: PanelExport::default(),
             load_save_panel: PanelSaveLoad::default(),
@@ -113,20 +118,12 @@ impl Default for MyApp {
 impl MyApp {
     fn export(&mut self) {
         let steps = self.gen_panel.steps.clone();
-        let disabled = self.gen_panel.disabled.clone();
         let export_panel = self.export_panel.clone();
         let seed = self.seed;
         let tx = self.thread2main_tx.clone();
         let min_progress_step = 0.01 * self.gen_panel.enabled_steps() as f32;
         thread::spawn(move || {
-            let res = export_heightmap(
-                seed,
-                &steps,
-                &disabled,
-                &export_panel,
-                tx.clone(),
-                min_progress_step,
-            );
+            let res = export_heightmap(seed, &steps, &export_panel, tx.clone(), min_progress_step);
             tx.send(ThreadMessage::ExporterDone(res)).unwrap();
         });
     }
@@ -146,7 +143,6 @@ impl MyApp {
             self.main2gen_tx
                 .send(WorldGenCommand::ExecuteStep(
                     i,
-                    self.gen_panel.disabled[i],
                     self.gen_panel.steps[i].clone(),
                     self.panel_2d.live_preview,
                     0.01 * self.gen_panel.enabled_steps() as f32,
@@ -189,11 +185,11 @@ impl MyApp {
                 ui.separator();
                 match self.load_save_panel.render(ui) {
                     Some(SaveLoadAction::Load) => {
-                        if let Err(msg) = self.gen_panel.load(&self.load_save_panel.get_file_path())
+                        if let Err(msg) = self.gen_panel.load(self.load_save_panel.get_file_path())
                         {
                             let err_msg = format!(
                                 "Error while reading project {} : {}",
-                                &self.load_save_panel.get_file_path(),
+                                self.load_save_panel.get_file_path(),
                                 msg
                             );
                             println!("{}", err_msg);
@@ -204,11 +200,11 @@ impl MyApp {
                         }
                     }
                     Some(SaveLoadAction::Save) => {
-                        if let Err(msg) = self.gen_panel.save(&self.load_save_panel.get_file_path())
+                        if let Err(msg) = self.gen_panel.save(self.load_save_panel.get_file_path())
                         {
                             let err_msg = format!(
                                 "Error while writing project {} : {}",
-                                &self.load_save_panel.get_file_path(),
+                                self.load_save_panel.get_file_path(),
                                 msg
                             );
                             println!("{}", err_msg);
@@ -243,7 +239,20 @@ impl MyApp {
                                 .send(WorldGenCommand::GetStepMap(step))
                                 .unwrap();
                         }
-                        _ => (),
+                        Some(GeneratorAction::DisplayMask(step)) => {
+                            self.mask_step = Some(step);
+                            let mask = if let Some(ref mask) = self.gen_panel.steps[step].mask {
+                                Some(mask.clone())
+                            } else {
+                                Some(vec![1.0; MASK_SIZE * MASK_SIZE])
+                            };
+                            self.panel_2d.display_mask(
+                                self.image_size,
+                                self.preview_size as u32,
+                                mask,
+                            );
+                        }
+                        None => (),
                     }
                 });
             })
@@ -256,9 +265,12 @@ impl MyApp {
                 ui.horizontal(|ui| {
                     egui::CollapsingHeader::new("2d preview")
                         .default_open(true)
-                        .show(ui, |ui| match self.panel_2d.render(ui) {
-                            Some(Panel2dAction::ResizePreview(new_size)) => self.resize(new_size),
-                            _ => (),
+                        .show(ui, |ui| {
+                            if let Some(Panel2dAction::ResizePreview(new_size)) =
+                                self.panel_2d.render(ui)
+                            {
+                                self.resize(new_size);
+                            }
                         });
                     egui::CollapsingHeader::new("3d preview")
                         .default_open(true)
@@ -314,6 +326,14 @@ impl eframe::App for MyApp {
                     self.progress = (step + 1) as f32 / self.gen_panel.enabled_steps() as f32
                 }
                 Ok(ThreadMessage::GeneratorStepMap(_idx, hmap)) => {
+                    if let Some(step) = self.mask_step {
+                        // mask was updated, update step
+                        if let Some(mask) = self.panel_2d.get_current_mask() {
+                            self.gen_panel.steps[step].mask = Some(mask);
+                            self.regen(false, step);
+                        }
+                        self.mask_step = None;
+                    }
                     self.panel_2d
                         .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
                 }
@@ -378,7 +398,7 @@ impl eframe::App for MyApp {
                         ui.label(err_msg);
                     });
                 });
-            if open == false {
+            if !open {
                 self.err_msg = None;
             }
         }

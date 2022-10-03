@@ -36,6 +36,11 @@ The current version features those generators :
 - WaterErosion : carves rivers by simulating rain drops dragging earth along slopes
 - Island : lower the altitude along the borders of the map
 
+## Masks
+You can add a mask to a generator step by clicking the square next to the generator name.
+You can then edit the mask using a painting brush. The generator effect will be scaled depending on the mask color.
+![Masks UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_masks.jpg)
+
 ## Terrain preview
 You have a 2D preview displaying the heightmap (at current selected step in the generators UI). You can change the preview heightmap size from 64x64 for very fast computation to 512x512 for a more precise visualization. If `live preview` button is checked, the 2D preview will be updated at every step during computation.
 

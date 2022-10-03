@@ -8,8 +8,7 @@ use crate::{
 
 pub fn export_heightmap(
     seed: u64,
-    steps: &Vec<Step>,
-    disabled: &Vec<bool>,
+    steps: &[Step],
     export_data: &PanelExport,
     tx: Sender<ThreadMessage>,
     min_progress_step: f32,
@@ -23,7 +22,7 @@ pub fn export_heightmap(
             (export_data.export_height * export_data.tiles_v) as usize,
         ),
     );
-    wgen.generate(steps, disabled, tx.clone(), min_progress_step);
+    wgen.generate(steps, tx, min_progress_step);
     let mut buf = vec![0u8; file_width * file_height * 2];
 
     let (min, max) = wgen.get_min_max();

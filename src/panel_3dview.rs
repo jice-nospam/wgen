@@ -25,16 +25,21 @@ pub struct MeshData {
     uv: Vec<three_d::Vec2>,
 }
 
+#[derive(Clone, Copy)]
+pub struct Panel3dViewConf {
+    pub orbit: three_d::Vec2,
+    pub pan: three_d::Vec2,
+    pub zoom: f32,
+    pub hscale: f32,
+    pub water_level: f32,
+    pub show_water: bool,
+    pub show_grid: bool,
+    pub show_skybox: bool,
+}
+
 pub struct Panel3dView {
     size: f32,
-    orbit: three_d::Vec2,
-    pan: three_d::Vec2,
-    zoom: f32,
-    hscale: f32,
-    water_level: f32,
-    show_water: bool,
-    show_grid: bool,
-    show_skybox: bool,
+    conf: Panel3dViewConf,
     mesh_data: MeshData,
     mesh_updated: bool,
 }
@@ -43,14 +48,16 @@ impl Default for Panel3dView {
     fn default() -> Self {
         Self {
             size: PANEL3D_SIZE,
-            pan: three_d::Vec2::new(0.0, 0.0),
-            orbit: three_d::Vec2::new(std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_4),
-            zoom: 60.0,
-            hscale: 100.0,
-            water_level: 40.0,
-            show_water: true,
-            show_grid: false,
-            show_skybox: true,
+            conf: Panel3dViewConf {
+                pan: three_d::Vec2::new(0.0, 0.0),
+                orbit: three_d::Vec2::new(std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_4),
+                zoom: 60.0,
+                hscale: 100.0,
+                water_level: 40.0,
+                show_water: true,
+                show_grid: false,
+                show_skybox: true,
+            },
             mesh_data: Default::default(),
             mesh_updated: false,
         }
@@ -72,34 +79,34 @@ impl Panel3dView {
             ui.horizontal(|ui| {
                 ui.label("Height scale %");
                 ui.add(
-                    egui::DragValue::new(&mut self.hscale)
+                    egui::DragValue::new(&mut self.conf.hscale)
                         .speed(1.0)
                         .clamp_range(std::ops::RangeInclusive::new(10.0, 200.0)),
                 );
             });
             ui.horizontal(|ui| {
                 ui.label("Show water plane");
-                let old_show_water = self.show_water;
-                ui.checkbox(&mut self.show_water, "");
-                if old_show_water != self.show_water {
-                    self.update_water_level(self.show_water, self.water_level);
+                let old_show_water = self.conf.show_water;
+                ui.checkbox(&mut self.conf.show_water, "");
+                if old_show_water != self.conf.show_water {
+                    self.update_water_level(self.conf.show_water, self.conf.water_level);
                 }
                 ui.label("Water height");
-                let old_water_level = self.water_level;
+                let old_water_level = self.conf.water_level;
                 ui.add_enabled(
-                    self.show_water,
-                    egui::DragValue::new(&mut self.water_level)
+                    self.conf.show_water,
+                    egui::DragValue::new(&mut self.conf.water_level)
                         .speed(0.1)
                         .clamp_range(std::ops::RangeInclusive::new(0.0, 100.0)),
                 );
-                if old_water_level != self.water_level {
+                if old_water_level != self.conf.water_level {
                     self.update_water_level(false, old_water_level);
-                    self.update_water_level(true, self.water_level);
+                    self.update_water_level(true, self.conf.water_level);
                 }
                 ui.label("Show grid");
-                ui.checkbox(&mut self.show_grid, "");
+                ui.checkbox(&mut self.conf.show_grid, "");
                 ui.label("Show skybox");
-                ui.checkbox(&mut self.show_skybox, "");
+                ui.checkbox(&mut self.conf.show_skybox, "");
             });
         });
     }
@@ -145,8 +152,8 @@ impl Panel3dView {
                     .push(three_d::vec2(x as f32 * ucoef, y as f32 * vcoef));
             }
         }
-        if self.show_water {
-            self.update_water_level(true, self.water_level);
+        if self.conf.show_water {
+            self.update_water_level(true, self.conf.water_level);
         }
         self.mesh_data.indices = Vec::with_capacity(6 * (size.1 - 1) * (size.0 - 1));
         for y in 0..size.1 - 1 {
@@ -178,27 +185,20 @@ impl Panel3dView {
         let rbutton = ui.input().pointer.button_down(PointerButton::Secondary);
         let mbutton = ui.input().pointer.button_down(PointerButton::Middle);
         if lbutton {
-            self.orbit[0] += response.drag_delta().x * 0.01;
-            self.orbit[1] += response.drag_delta().y * 0.01;
-            self.orbit[1] = self.orbit[1].clamp(0.15, std::f32::consts::FRAC_PI_2 - 0.05);
+            self.conf.orbit[0] += response.drag_delta().x * 0.01;
+            self.conf.orbit[1] += response.drag_delta().y * 0.01;
+            self.conf.orbit[1] = self.conf.orbit[1].clamp(0.15, std::f32::consts::FRAC_PI_2 - 0.05);
         } else if rbutton {
-            self.pan[0] += response.drag_delta().x * 0.5;
-            self.pan[1] += response.drag_delta().y * 0.5;
-            self.pan[1] = self.pan[1].clamp(0.0, 140.0);
+            self.conf.pan[0] += response.drag_delta().x * 0.5;
+            self.conf.pan[1] += response.drag_delta().y * 0.5;
+            self.conf.pan[1] = self.conf.pan[1].clamp(0.0, 140.0);
         } else if mbutton {
-            self.zoom += response.drag_delta().y * 0.15;
+            self.conf.zoom += response.drag_delta().y * 0.15;
         }
 
         // Clone locals so we can move them into the paint callback:
-        let orbit = self.orbit;
-        let pan = self.pan;
-        let zoom = self.zoom;
-        let hscale = self.hscale;
+        let conf = self.conf;
         let mesh_updated = self.mesh_updated;
-        let show_water = self.show_water;
-        let water_level = self.water_level;
-        let show_grid = self.show_grid;
-        let show_skybox = self.show_skybox;
         let mesh_data: Option<MeshData> = if mesh_updated {
             Some(self.mesh_data.clone())
         } else {
@@ -212,18 +212,7 @@ impl Panel3dView {
                     if mesh_updated {
                         renderer.update_model(three_d, &mesh_data);
                     }
-                    renderer.render(
-                        three_d,
-                        &info,
-                        orbit,
-                        pan,
-                        zoom,
-                        hscale,
-                        show_water,
-                        water_level,
-                        show_grid,
-                        show_skybox,
-                    );
+                    renderer.render(three_d, &info, conf);
                 });
             })),
         };
@@ -278,13 +267,13 @@ impl Renderer {
             wireframe: None,
             sky: build_sky(three_d),
             directional: DirectionalLight::new(
-                &three_d,
+                three_d,
                 1.5,
                 Color::new_opaque(255, 222, 180),
                 &vec3(-0.5, 0.5, -0.5).normalize(),
             )
             .unwrap(),
-            ambient: AmbientLight::new(&three_d, 0.5, Color::WHITE).unwrap(),
+            ambient: AmbientLight::new(three_d, 0.5, Color::WHITE).unwrap(),
         }
     }
     pub fn update_model(&mut self, three_d: &three_d::Context, mesh_data: &Option<MeshData>) {
@@ -297,14 +286,11 @@ impl Renderer {
                 ..Default::default()
             };
             let mut material = PhysicalMaterial::new_opaque(
-                &three_d,
+                three_d,
                 &CpuMaterial {
                     roughness: 1.0,
                     metallic: 0.0,
-                    albedo_texture: Some(CpuTexture {
-                        data: TextureData::RgbaU8(vec![[50, 35, 30, 255]]),
-                        ..Default::default()
-                    }),
+                    albedo: Color::new_opaque(45, 30, 25),
                     ..Default::default()
                 },
             )
@@ -320,14 +306,7 @@ impl Renderer {
         &mut self,
         three_d: &three_d::Context,
         info: &egui::PaintCallbackInfo,
-        orbit: three_d::Vec2,
-        pan: three_d::Vec2,
-        zoom: f32,
-        hscale: f32,
-        show_water: bool,
-        water_level: f32,
-        show_grid: bool,
-        show_skybox: bool,
+        conf: Panel3dViewConf,
     ) {
         // Set where to paint
         let viewport = info.viewport_in_pixels();
@@ -347,7 +326,7 @@ impl Renderer {
             campos,
             target,
             vec3(0.0, 0.0, 1.0),
-            degrees((90.0 - zoom * 0.8).clamp(1.0, 90.0)),
+            degrees((90.0 - conf.zoom * 0.8).clamp(1.0, 90.0)),
             0.1,
             XY_SCALE * 10.0,
         )
@@ -356,23 +335,23 @@ impl Renderer {
         camera
             .rotate_around_with_fixed_up(
                 &target,
-                orbit[0] * XY_SCALE * 2.0,
-                orbit[1] * XY_SCALE * 2.0,
+                conf.orbit[0] * XY_SCALE * 2.0,
+                conf.orbit[1] * XY_SCALE * 2.0,
             )
             .unwrap();
 
         camera
-            .translate(&(pan[1] * camera.up() - pan[0] * camera.right_direction()))
+            .translate(&(conf.pan[1] * camera.up() - conf.pan[0] * camera.right_direction()))
             .unwrap();
         let camz = camera.position().z;
-        if camz < water_level + 10.0 {
+        if camz < conf.water_level + 10.0 {
             camera
-                .translate(&vec3(0.0, 0.0, water_level + 10.0 - camz))
+                .translate(&vec3(0.0, 0.0, conf.water_level + 10.0 - camz))
                 .unwrap();
         }
 
         let mut transfo = Mat4::from_angle_z(radians(0.0));
-        transfo.z[2] = hscale / 100.0;
+        transfo.z[2] = conf.hscale / 100.0;
 
         if let Some(ref mut model) = self.model {
             model.set_transformation(transfo);
@@ -384,7 +363,7 @@ impl Renderer {
                 .unwrap();
         }
 
-        if show_grid {
+        if conf.show_grid {
             if let Some(ref mut wireframe) = self.wireframe {
                 wireframe.set_transformation(transfo);
                 wireframe
@@ -392,9 +371,9 @@ impl Renderer {
                     .unwrap();
             }
         }
-        if show_water {
+        if conf.show_water {
             let mut water_model = build_water_plane(three_d);
-            let mut water_transfo = Mat4::from_translation(Vec3::new(0.0, 0.0, water_level));
+            let mut water_transfo = Mat4::from_translation(Vec3::new(0.0, 0.0, conf.water_level));
             water_transfo.x[0] = XY_SCALE * 10.0;
             water_transfo.y[1] = XY_SCALE * 10.0;
             water_model.set_transformation(transfo * water_transfo);
@@ -403,7 +382,7 @@ impl Renderer {
                 .render(&camera, &[&self.ambient, &self.directional])
                 .unwrap();
         }
-        if show_skybox {
+        if conf.show_skybox {
             self.sky.render(&camera, &[]).unwrap();
             //self.skybox.render(&camera, &[]).unwrap();
         }
@@ -416,7 +395,7 @@ fn build_wireframe(
     grid_size: usize,
 ) -> Gm<InstancedMesh, ColorMaterial> {
     let mut wireframe_material = ColorMaterial::new(
-        &three_d,
+        three_d,
         &CpuMaterial {
             albedo: Color::new_opaque(220, 50, 50),
             roughness: 0.7,
@@ -431,10 +410,10 @@ fn build_wireframe(
         .transform(&Mat4::from_nonuniform_scale(1.0, 0.1, 0.1))
         .unwrap();
     let edges = InstancedModel::new_with_material(
-        &three_d,
+        three_d,
         &edge_transformations(grid_size, mesh_data),
         &cylinder,
-        wireframe_material.clone(),
+        wireframe_material,
     )
     .unwrap();
     edges
@@ -519,7 +498,7 @@ fn build_sky(three_d: &three_d::Context) -> Model<PhysicalMaterial> {
     }
     sky2.uvs = Some(uvs);
     let mut sky_material = PhysicalMaterial::new_opaque(
-        &three_d,
+        three_d,
         &CpuMaterial {
             roughness: 1.0,
             metallic: 0.0,
@@ -542,14 +521,11 @@ fn build_water_plane(three_d: &three_d::Context) -> Model<PhysicalMaterial> {
     let water_mesh = CpuMesh::square();
 
     let mut water_material = PhysicalMaterial::new_opaque(
-        &three_d,
+        three_d,
         &CpuMaterial {
             roughness: 0.1,
             metallic: 0.2,
-            albedo_texture: Some(CpuTexture {
-                data: TextureData::RgbaU8(vec![[50, 60, 200, 255]]),
-                ..Default::default()
-            }),
+            albedo: Color::new_opaque(50, 60, 150),
             ..Default::default()
         },
     )

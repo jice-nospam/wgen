@@ -79,7 +79,7 @@ pub fn render_fbm(ui: &mut egui::Ui, conf: &mut FbmConf) {
 pub fn gen_fbm(
     seed: u64,
     size: (usize, usize),
-    hmap: &mut Vec<f32>,
+    hmap: &mut [f32],
     conf: &FbmConf,
     export: bool,
     tx: Sender<ThreadMessage>,

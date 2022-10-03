@@ -19,6 +19,13 @@ impl Default for MidPointConf {
     }
 }
 
+pub struct ProgressTracking {
+    count: usize,
+    progress: f32,
+    min_progress_step: f32,
+    export: bool,
+}
+
 pub fn render_mid_point(ui: &mut egui::Ui, conf: &mut MidPointConf) {
     ui.horizontal(|ui| {
         ui.label("roughness");
@@ -44,34 +51,28 @@ pub fn gen_mid_point(
     hmap[size.0 - 1] = rng.gen_range(0.0, 1.0);
     hmap[size.0 * (size.1 - 1)] = rng.gen_range(0.0, 1.0);
     hmap[size.0 * size.1 - 1] = rng.gen_range(0.0, 1.0);
-    let mut count = size.0 * size.1 * 2;
-    let mut progress = 0.0;
+    let mut track = ProgressTracking {
+        count: size.0 * size.1 * 2,
+        progress: 0.0,
+        min_progress_step,
+        export,
+    };
     diamond_square(
         hmap,
         &mut rng,
         size,
         size.0 / 2,
         conf.roughness,
-        &mut count,
-        &mut progress,
-        min_progress_step,
-        export,
+        &mut track,
         tx,
     );
 }
 
-fn check_progress(
-    count: usize,
-    progress: &mut f32,
-    size: (usize, usize),
-    min_progress_step: f32,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-) {
-    let new_progress = 1.0 - count as f32 / (size.0 * size.1 * 2) as f32;
-    if new_progress - *progress >= min_progress_step {
-        *progress = new_progress;
-        report_progress(*progress, export, tx);
+fn check_progress(track: &mut ProgressTracking, size: (usize, usize), tx: Sender<ThreadMessage>) {
+    let new_progress = 1.0 - track.count as f32 / (size.0 * size.1 * 2) as f32;
+    if new_progress - track.progress >= track.min_progress_step {
+        track.progress = new_progress;
+        report_progress(track.progress, track.export, tx);
     }
 }
 
@@ -81,10 +82,7 @@ pub fn diamond_square(
     size: (usize, usize),
     cur_size: usize,
     roughness: f32,
-    count: &mut usize,
-    progress: &mut f32,
-    min_progress_step: f32,
-    export: bool,
+    track: &mut ProgressTracking,
     tx: Sender<ThreadMessage>,
 ) {
     let half = cur_size / 2;
@@ -94,15 +92,8 @@ pub fn diamond_square(
     for y in (half..size.1).step_by(cur_size) {
         for x in (half..size.0).step_by(cur_size) {
             square_step(hmap, rng, x, y, size, half, roughness);
-            *count -= 1;
-            check_progress(
-                *count,
-                progress,
-                size,
-                min_progress_step,
-                export,
-                tx.clone(),
-            );
+            track.count -= 1;
+            check_progress(track, size, tx.clone());
         }
     }
     let mut col = 0;
@@ -111,47 +102,22 @@ pub fn diamond_square(
         if col % 2 == 1 {
             for y in (half..size.1).step_by(cur_size) {
                 diamond_step(hmap, rng, x, y, size, half, roughness);
-                *count -= 1;
-                check_progress(
-                    *count,
-                    progress,
-                    size,
-                    min_progress_step,
-                    export,
-                    tx.clone(),
-                );
+                track.count -= 1;
+                check_progress(track, size, tx.clone());
             }
         } else {
             for y in (0..size.1).step_by(cur_size) {
                 diamond_step(hmap, rng, x, y, size, half, roughness);
-                *count -= 1;
-                check_progress(
-                    *count,
-                    progress,
-                    size,
-                    min_progress_step,
-                    export,
-                    tx.clone(),
-                );
+                track.count -= 1;
+                check_progress(track, size, tx.clone());
             }
         }
     }
-    diamond_square(
-        hmap,
-        rng,
-        size,
-        cur_size / 2,
-        roughness * 0.5,
-        count,
-        progress,
-        min_progress_step,
-        export,
-        tx,
-    );
+    diamond_square(hmap, rng, size, cur_size / 2, roughness * 0.5, track, tx);
 }
 
 fn square_step(
-    hmap: &mut Vec<f32>,
+    hmap: &mut [f32],
     rng: &mut StdRng,
     x: usize,
     y: usize,
@@ -183,7 +149,7 @@ fn square_step(
 }
 
 fn diamond_step(
-    hmap: &mut Vec<f32>,
+    hmap: &mut [f32],
     rng: &mut StdRng,
     x: usize,
     y: usize,

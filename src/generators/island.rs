@@ -31,7 +31,7 @@ pub fn render_island(ui: &mut egui::Ui, conf: &mut IslandConf) {
 
 pub fn gen_island(
     size: (usize, usize),
-    hmap: &mut Vec<f32>,
+    hmap: &mut [f32],
     conf: &IslandConf,
     export: bool,
     tx: Sender<ThreadMessage>,

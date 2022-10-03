@@ -55,7 +55,7 @@ pub fn render_hills(ui: &mut egui::Ui, conf: &mut HillsConf) {
 pub fn gen_hills(
     seed: u64,
     size: (usize, usize),
-    hmap: &mut Vec<f32>,
+    hmap: &mut [f32],
     conf: &HillsConf,
     export: bool,
     tx: Sender<ThreadMessage>,

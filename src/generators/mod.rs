@@ -33,32 +33,32 @@ where
     T::default()
 }
 
-pub fn get_min_max(v: &Vec<f32>) -> (f32, f32) {
+pub fn get_min_max(v: &[f32]) -> (f32, f32) {
     let mut min = v[0];
     let mut max = v[0];
-    for i in 1..v.len() {
-        if v[i] > max {
-            max = v[i];
-        } else if v[i] < min {
-            min = v[i];
+    for val in v.iter().skip(1) {
+        if *val > max {
+            max = *val;
+        } else if *val < min {
+            min = *val;
         }
     }
     (min, max)
 }
 
-pub fn normalize(v: &mut Vec<f32>, target_min: f32, target_max: f32) {
+pub fn normalize(v: &mut [f32], target_min: f32, target_max: f32) {
     let (min, max) = get_min_max(v);
     let invmax = if min == max {
         0.0
     } else {
         (target_max - target_min) / (max - min)
     };
-    for i in 0..v.len() {
-        v[i] = target_min + (v[i] - min) * invmax;
+    for val in v {
+        *val = target_min + (*val - min) * invmax;
     }
 }
 
-pub fn _blur(v: &mut Vec<f32>, size: (usize, usize)) {
+pub fn _blur(v: &mut [f32], size: (usize, usize)) {
     const FACTOR: usize = 8;
     let small_size: (usize, usize) = (
         (size.0 + FACTOR - 1) / FACTOR,
@@ -82,7 +82,7 @@ pub fn _blur(v: &mut Vec<f32>, size: (usize, usize)) {
     }
 }
 
-pub fn _interpolate(v: &Vec<f32>, x: f32, y: f32, size: (usize, usize)) -> f32 {
+pub fn _interpolate(v: &[f32], x: f32, y: f32, size: (usize, usize)) -> f32 {
     let ix = x as usize;
     let iy = y as usize;
     let dx = x.fract();

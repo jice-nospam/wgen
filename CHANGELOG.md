@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - Unreleased
 ### Added
 - editable masks to each step. Makes it possible to apply a step only on some part of the map
 

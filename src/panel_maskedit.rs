@@ -126,7 +126,7 @@ impl PanelMaskEdit {
             // mouse position in canvas from 0.0,0.0 (bottom left) to 1.0,1.0 (top right)
             let canvas_pos = from_screen * pos;
             mouse_pos = Some(canvas_pos);
-            if (lbutton || rbutton || mbutton) && in_canvas(canvas_pos) {
+            if (lbutton || rbutton || mbutton) && in_canvas(canvas_pos) && time > 0.0 {
                 self.update_mask(canvas_pos, lbutton, rbutton, brush_config, time as f32);
                 mesh_updated = true;
             }
@@ -136,7 +136,6 @@ impl PanelMaskEdit {
         } else {
             None
         };
-        // TODO handle mouse clicks
         let callback = egui::PaintCallback {
             rect,
             callback: std::sync::Arc::new(egui_glow::CallbackFn::new(move |info, painter| {
@@ -172,16 +171,16 @@ impl PanelMaskEdit {
             let maxx = ((mx + brush_radius) as usize).min(MASK_SIZE);
             let miny = (my - brush_radius).max(0.0) as usize;
             let maxy = ((my + brush_radius) as usize).min(MASK_SIZE);
-            let target_value = if lbutton {
-                0.0
+            let (target_value, time_coef) = if lbutton {
+                (0.0, 10.0)
             } else if rbutton {
-                1.0
+                // for some unknown reason, white color is faster than black!
+                (1.0, 3.0)
             } else {
                 // mbutton
-                brush_config.brush_value
+                (brush_config.brush_value, 5.0)
             };
             let brush_coef = 1.0 / (brush_radius - falloff_dist);
-            println!("{}", time);
             for y in miny..maxy {
                 let dy = y as f32 - my;
                 let yoff = y * MASK_SIZE;
@@ -200,7 +199,7 @@ impl PanelMaskEdit {
                     };
                     let current_value = mask[x + yoff];
                     mask[x + yoff] =
-                        current_value + time * 10.0 * alpha * (target_value - current_value);
+                        current_value + time * time_coef * alpha * (target_value - current_value);
                 }
             }
         }

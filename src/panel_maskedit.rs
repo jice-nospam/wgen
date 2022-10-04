@@ -30,6 +30,7 @@ pub struct PanelMaskEdit {
     conf: BrushConfig,
     mesh_updated: bool,
     brush_updated: bool,
+    is_painting: bool,
     prev_frame_time: f64,
 }
 
@@ -44,6 +45,7 @@ impl PanelMaskEdit {
                 brush_falloff: 0.5,
             },
             mesh_updated: false,
+            is_painting: false,
             brush_updated: false,
             prev_frame_time: -1.0,
         }
@@ -63,10 +65,7 @@ impl PanelMaskEdit {
             });
             ui.horizontal(|ui| {
                 ui.label("mouse buttons : left increase, right decrease, middle set brush value");
-                if ui.input().pointer.button_down(PointerButton::Primary)
-                    || ui.input().pointer.button_down(PointerButton::Secondary)
-                    || ui.input().pointer.button_down(PointerButton::Middle)
-                {
+                if self.is_painting {
                     ui.add(egui::Spinner::new());
                 } else {
                     self.prev_frame_time = -1.0;
@@ -127,7 +126,8 @@ impl PanelMaskEdit {
             // mouse position in canvas from 0.0,0.0 (bottom left) to 1.0,1.0 (top right)
             let canvas_pos = from_screen * pos;
             mouse_pos = Some(canvas_pos);
-            if (lbutton || rbutton || mbutton) && in_canvas(canvas_pos) && time > 0.0 {
+            self.is_painting = (lbutton || rbutton || mbutton) && in_canvas(canvas_pos);
+            if self.is_painting && time > 0.0 {
                 self.update_mask(canvas_pos, lbutton, rbutton, brush_config, time as f32);
                 mesh_updated = true;
             }
@@ -242,6 +242,7 @@ fn with_three_d_context<R>(
 }
 pub struct Renderer {
     mask_model: Model<ColorMaterial>,
+    brush_mesh: CpuMesh,
     brush_model: Model<ColorMaterial>,
     mask_mesh: CpuMesh,
     material: ColorMaterial,
@@ -261,18 +262,30 @@ impl Renderer {
         .unwrap();
         material.render_states.cull = Cull::None;
         material.render_states.depth_test = DepthTest::Always;
+        material.render_states.blend = Blend::TRANSPARENCY;
         let mask_mesh = build_mask();
         let mask_model = Model::new_with_material(three_d, &mask_mesh, material.clone()).unwrap();
+        let brush_mesh = build_brush(0.5);
+        let brush_model = Model::new_with_material(three_d, &brush_mesh, material.clone()).unwrap();
         Self {
             mask_model,
-            brush_model: build_brush(three_d, 0.5),
+            brush_mesh,
+            brush_model,
             mask_mesh,
             material,
         }
     }
     pub fn update_brush(&mut self, three_d: &three_d::Context, brush_conf: BrushConfig) {
-        // TODO only move inner ring vertices instead of recreating everything
-        self.brush_model = build_brush(three_d, brush_conf.brush_falloff);
+        if let Positions::F32(ref mut vertices) = self.brush_mesh.positions {
+            let inv_fall = 1.0 - brush_conf.brush_falloff;
+            // update position of inner opaque ring
+            for i in 0..32 {
+                let angle = std::f32::consts::PI * 2.0 * (i as f32) / 32.0;
+                vertices[i + 1] = vec3(angle.cos() * inv_fall, angle.sin() * inv_fall, 0.0);
+            }
+        }
+        self.brush_model =
+            Model::new_with_material(three_d, &self.brush_mesh, self.material.clone()).unwrap();
     }
     pub fn update_model(&mut self, three_d: &three_d::Context, mask: &Option<Vec<f32>>) {
         if let Some(mask) = mask {
@@ -339,7 +352,7 @@ impl Renderer {
 }
 
 /// build a circular mesh with a double ring : one opaque 32 vertices inner ring and one transparent 64 vertices outer ring
-fn build_brush(three_d: &three_d::Context, falloff: f32) -> Model<ColorMaterial> {
+fn build_brush(falloff: f32) -> CpuMesh {
     const VERTICES_COUNT: usize = 1 + 32 + 64;
     let mut colors = Vec::with_capacity(VERTICES_COUNT);
     let mut vertices = Vec::with_capacity(VERTICES_COUNT);
@@ -382,29 +395,13 @@ fn build_brush(three_d: &three_d::Context, falloff: f32) -> Model<ColorMaterial>
         indices.push(33 + (2 * i + 1) % 64);
         indices.push(33 + (2 * i + 2) % 64);
     }
-    let cpu_mesh = CpuMesh {
+    CpuMesh {
         name: "brush".to_string(),
         positions: Positions::F32(vertices),
         indices: Some(Indices::U16(indices)),
         colors: Some(colors),
         ..Default::default()
-    };
-
-    let mut material = ColorMaterial::new(
-        three_d,
-        &CpuMaterial {
-            roughness: 1.0,
-            metallic: 0.0,
-            albedo: Color::WHITE,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-
-    material.render_states.cull = Cull::None;
-    material.render_states.depth_test = DepthTest::Always;
-    material.render_states.blend = Blend::TRANSPARENCY;
-    Model::new_with_material(three_d, &cpu_mesh, material).unwrap()
+    }
 }
 
 fn build_mask() -> CpuMesh {

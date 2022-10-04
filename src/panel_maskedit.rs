@@ -19,6 +19,7 @@ const MAX_BRUSH_SIZE: f32 = 0.25;
 
 #[derive(Clone, Copy)]
 pub struct BrushConfig {
+    /// value painted with middle mouse button
     pub brush_value: f32,
     pub brush_size: f32,
     pub brush_falloff: f32,
@@ -240,15 +241,33 @@ fn with_three_d_context<R>(
     })
 }
 pub struct Renderer {
-    mask_model: Option<Model<ColorMaterial>>,
+    mask_model: Model<ColorMaterial>,
     brush_model: Model<ColorMaterial>,
+    mask_mesh: CpuMesh,
+    material: ColorMaterial,
 }
 
 impl Renderer {
     pub fn new(three_d: &three_d::Context) -> Self {
+        let mut material = ColorMaterial::new(
+            three_d,
+            &CpuMaterial {
+                roughness: 1.0,
+                metallic: 0.0,
+                albedo: Color::WHITE,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        material.render_states.cull = Cull::None;
+        material.render_states.depth_test = DepthTest::Always;
+        let mask_mesh = build_mask();
+        let mask_model = Model::new_with_material(three_d, &mask_mesh, material.clone()).unwrap();
         Self {
-            mask_model: None,
+            mask_model,
             brush_model: build_brush(three_d, 0.5),
+            mask_mesh,
+            material,
         }
     }
     pub fn update_brush(&mut self, three_d: &three_d::Context, brush_conf: BrushConfig) {
@@ -257,53 +276,21 @@ impl Renderer {
     }
     pub fn update_model(&mut self, three_d: &three_d::Context, mask: &Option<Vec<f32>>) {
         if let Some(mask) = mask {
-            // TODO only update colors if the model is already created
-            let mut vertices = Vec::with_capacity(MASK_SIZE * MASK_SIZE);
-            let mut indices = Vec::with_capacity(6 * (MASK_SIZE - 1) * (MASK_SIZE - 1));
-            let mut colors = Vec::with_capacity(MASK_SIZE * MASK_SIZE);
-            for y in 0..MASK_SIZE {
-                let vy = y as f32 / (MASK_SIZE - 1) as f32 * 10.0 - 5.0;
-                let yoff = (MASK_SIZE - 1 - y) * MASK_SIZE;
-                for x in 0..MASK_SIZE {
-                    let vx = x as f32 / (MASK_SIZE - 1) as f32 * 10.0 - 5.0;
-                    let rgb_val = (mask[yoff + x] * 255.0).clamp(0.0, 255.0) as u8;
-                    vertices.push(three_d::vec3(vx, vy, 0.0));
-                    colors.push(Color::new_opaque(rgb_val, rgb_val, rgb_val));
+            if let Some(ref mut colors) = self.mask_mesh.colors {
+                let mut idx = 0;
+                for y in 0..MASK_SIZE {
+                    let yoff = (MASK_SIZE - 1 - y) * MASK_SIZE;
+                    for x in 0..MASK_SIZE {
+                        let rgb_val = (mask[yoff + x] * 255.0).clamp(0.0, 255.0) as u8;
+                        colors[idx].r = rgb_val;
+                        colors[idx].g = rgb_val;
+                        colors[idx].b = rgb_val;
+                        idx += 1;
+                    }
                 }
             }
-            for y in 0..MASK_SIZE - 1 {
-                let y_offset = y * MASK_SIZE;
-                for x in 0..MASK_SIZE - 1 {
-                    let off = x + y_offset;
-                    indices.push((off) as u32);
-                    indices.push((off + MASK_SIZE) as u32);
-                    indices.push((off + 1) as u32);
-                    indices.push((off + MASK_SIZE) as u32);
-                    indices.push((off + MASK_SIZE + 1) as u32);
-                    indices.push((off + 1) as u32);
-                }
-            }
-            let cpu_mesh = CpuMesh {
-                positions: Positions::F32(vertices),
-                indices: Some(Indices::U32(indices)),
-                colors: Some(colors),
-                ..Default::default()
-            };
-
-            let mut material = ColorMaterial::new(
-                three_d,
-                &CpuMaterial {
-                    roughness: 1.0,
-                    metallic: 0.0,
-                    albedo: Color::WHITE,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-
-            material.render_states.cull = Cull::None;
-            material.render_states.depth_test = DepthTest::Always;
-            self.mask_model = Some(Model::new_with_material(three_d, &cpu_mesh, material).unwrap());
+            self.mask_model =
+                Model::new_with_material(three_d, &self.mask_mesh, self.material.clone()).unwrap();
         }
     }
     pub fn render(
@@ -337,9 +324,7 @@ impl Renderer {
         )
         .unwrap();
 
-        if let Some(ref mut model) = self.mask_model {
-            model.render(&camera, &[]).unwrap();
-        }
+        self.mask_model.render(&camera, &[]).unwrap();
         if let Some(mouse_pos) = mouse_pos {
             let transfo = Mat4::from_translation(vec3(
                 mouse_pos.x * 10.0 - 5.0,
@@ -420,4 +405,36 @@ fn build_brush(three_d: &three_d::Context, falloff: f32) -> Model<ColorMaterial>
     material.render_states.depth_test = DepthTest::Always;
     material.render_states.blend = Blend::TRANSPARENCY;
     Model::new_with_material(three_d, &cpu_mesh, material).unwrap()
+}
+
+fn build_mask() -> CpuMesh {
+    let mut vertices = Vec::with_capacity(MASK_SIZE * MASK_SIZE);
+    let mut indices = Vec::with_capacity(6 * (MASK_SIZE - 1) * (MASK_SIZE - 1));
+    let mut colors = Vec::with_capacity(MASK_SIZE * MASK_SIZE);
+    for y in 0..MASK_SIZE {
+        let vy = y as f32 / (MASK_SIZE - 1) as f32 * 10.0 - 5.0;
+        for x in 0..MASK_SIZE {
+            let vx = x as f32 / (MASK_SIZE - 1) as f32 * 10.0 - 5.0;
+            vertices.push(three_d::vec3(vx, vy, 0.0));
+            colors.push(Color::WHITE);
+        }
+    }
+    for y in 0..MASK_SIZE - 1 {
+        let y_offset = y * MASK_SIZE;
+        for x in 0..MASK_SIZE - 1 {
+            let off = x + y_offset;
+            indices.push((off) as u32);
+            indices.push((off + MASK_SIZE) as u32);
+            indices.push((off + 1) as u32);
+            indices.push((off + MASK_SIZE) as u32);
+            indices.push((off + MASK_SIZE + 1) as u32);
+            indices.push((off + 1) as u32);
+        }
+    }
+    CpuMesh {
+        positions: Positions::F32(vertices),
+        indices: Some(Indices::U32(indices)),
+        colors: Some(colors),
+        ..Default::default()
+    }
 }

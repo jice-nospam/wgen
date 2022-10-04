@@ -5,8 +5,8 @@ use image::EncodableLayout;
 use three_d::{
     degrees, radians, rotation_matrix_from_dir_to_dir, vec2, vec3, AmbientLight, Camera, Color,
     ColorMaterial, CpuMaterial, CpuMesh, CpuTexture, Cull, DirectionalLight, Gm, Indices,
-    InnerSpace, Instance, InstancedMesh, InstancedModel, Mat4, Model, Object, PhysicalMaterial,
-    Positions, TextureData, Vec3, Viewport,
+    InnerSpace, Instance, InstancedMesh, InstancedModel, Mat3, Mat4, Model, Object,
+    PhysicalMaterial, Positions, TextureData, Vec3, Viewport,
 };
 
 use crate::worldgen::ExportMap;
@@ -350,11 +350,7 @@ impl Renderer {
         .unwrap();
 
         camera
-            .rotate_around_with_fixed_up(
-                &target,
-                conf.orbit[0] * XY_SCALE * 2.0,
-                conf.orbit[1] * XY_SCALE * 2.0,
-            )
+            .rotate_around_with_fixed_up(&target, 0.0, conf.orbit[1] * XY_SCALE * 2.0)
             .unwrap();
 
         camera
@@ -367,10 +363,12 @@ impl Renderer {
                 .unwrap();
         }
 
-        let mut transfo = Mat4::from_angle_z(radians(0.0));
+        let mut transfo = Mat4::from_angle_z(radians(conf.orbit[0] * 2.0));
         transfo.z[2] = conf.hscale / 100.0;
-
         self.terrain_model.set_transformation(transfo);
+
+        let light_transfo = Mat3::from_angle_z(radians(conf.orbit[0] * 2.0));
+        self.directional.direction = light_transfo * vec3(-0.5, 0.5, -0.5);
         self.directional
             .generate_shadow_map(1024, &[&self.terrain_model])
             .unwrap();
@@ -397,6 +395,8 @@ impl Renderer {
                 .unwrap();
         }
         if conf.show_skybox {
+            let transfo = Mat4::from_angle_z(radians(conf.orbit[0] * 2.0));
+            self.sky.set_transformation(transfo);
             self.sky.render(&camera, &[]).unwrap();
         }
     }

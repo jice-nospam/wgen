@@ -253,7 +253,10 @@ fn with_three_d_context<R>(
     })
 }
 pub struct Renderer {
-    model: Option<Model<PhysicalMaterial>>,
+    terrain_mesh: CpuMesh,
+    terrain_model: Model<PhysicalMaterial>,
+    terrain_material: PhysicalMaterial,
+    water_model: Model<PhysicalMaterial>,
     directional: DirectionalLight,
     ambient: AmbientLight,
     sky: Model<PhysicalMaterial>,
@@ -262,8 +265,26 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(three_d: &three_d::Context) -> Self {
+        let terrain_mesh = CpuMesh::square();
+        let mut terrain_material = PhysicalMaterial::new_opaque(
+            three_d,
+            &CpuMaterial {
+                roughness: 1.0,
+                metallic: 0.0,
+                albedo: Color::new_opaque(45, 30, 25),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        terrain_material.render_states.cull = Cull::Back;
+        let terrain_model =
+            Model::new_with_material(three_d, &terrain_mesh, terrain_material.clone()).unwrap();
+        let water_model = build_water_plane(three_d);
         Self {
-            model: None,
+            terrain_mesh,
+            terrain_model,
+            terrain_material,
+            water_model,
             wireframe: None,
             sky: build_sky(three_d),
             directional: DirectionalLight::new(
@@ -278,28 +299,24 @@ impl Renderer {
     }
     pub fn update_model(&mut self, three_d: &three_d::Context, mesh_data: &Option<MeshData>) {
         if let Some(mesh_data) = mesh_data {
-            let cpu_mesh = CpuMesh {
-                positions: Positions::F32(mesh_data.vertices.clone()),
-                indices: Some(Indices::U32(mesh_data.indices.clone())),
-                normals: Some(mesh_data.normals.clone()),
-                uvs: Some(mesh_data.uv.clone()),
-                ..Default::default()
-            };
-            let mut material = PhysicalMaterial::new_opaque(
+            let mut rebuild = false;
+            if let Positions::F32(ref mut vertices) = self.terrain_mesh.positions {
+                rebuild = vertices.len() != mesh_data.vertices.len();
+                *vertices = mesh_data.vertices.clone();
+            }
+            if rebuild {
+                self.terrain_mesh.indices = Some(Indices::U32(mesh_data.indices.clone()));
+                self.terrain_mesh.normals = Some(mesh_data.normals.clone());
+                self.terrain_mesh.uvs = Some(mesh_data.uv.clone());
+                self.terrain_mesh.tangents = None;
+            }
+            self.wireframe = Some(build_wireframe(three_d, mesh_data, 16));
+            self.terrain_model = Model::new_with_material(
                 three_d,
-                &CpuMaterial {
-                    roughness: 1.0,
-                    metallic: 0.0,
-                    albedo: Color::new_opaque(45, 30, 25),
-                    ..Default::default()
-                },
+                &self.terrain_mesh,
+                self.terrain_material.clone(),
             )
             .unwrap();
-
-            material.render_states.cull = Cull::Back;
-            // material.render_states.depth_test = DepthTest::Greater;
-            self.wireframe = Some(build_wireframe(three_d, mesh_data, 16));
-            self.model = Some(Model::new_with_material(three_d, &cpu_mesh, material).unwrap());
         }
     }
     pub fn render(
@@ -353,15 +370,13 @@ impl Renderer {
         let mut transfo = Mat4::from_angle_z(radians(0.0));
         transfo.z[2] = conf.hscale / 100.0;
 
-        if let Some(ref mut model) = self.model {
-            model.set_transformation(transfo);
-            self.directional
-                .generate_shadow_map(1024, &[model])
-                .unwrap();
-            model
-                .render(&camera, &[&self.ambient, &self.directional])
-                .unwrap();
-        }
+        self.terrain_model.set_transformation(transfo);
+        self.directional
+            .generate_shadow_map(1024, &[&self.terrain_model])
+            .unwrap();
+        self.terrain_model
+            .render(&camera, &[&self.ambient, &self.directional])
+            .unwrap();
 
         if conf.show_grid {
             if let Some(ref mut wireframe) = self.wireframe {
@@ -372,19 +387,17 @@ impl Renderer {
             }
         }
         if conf.show_water {
-            let mut water_model = build_water_plane(three_d);
             let mut water_transfo = Mat4::from_translation(Vec3::new(0.0, 0.0, conf.water_level));
             water_transfo.x[0] = XY_SCALE * 10.0;
             water_transfo.y[1] = XY_SCALE * 10.0;
-            water_model.set_transformation(transfo * water_transfo);
+            self.water_model.set_transformation(transfo * water_transfo);
 
-            water_model
+            self.water_model
                 .render(&camera, &[&self.ambient, &self.directional])
                 .unwrap();
         }
         if conf.show_skybox {
             self.sky.render(&camera, &[]).unwrap();
-            //self.skybox.render(&camera, &[]).unwrap();
         }
     }
 }

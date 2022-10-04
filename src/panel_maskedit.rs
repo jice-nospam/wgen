@@ -20,9 +20,10 @@ const MAX_BRUSH_SIZE: f32 = 0.25;
 #[derive(Clone, Copy)]
 pub struct BrushConfig {
     /// value painted with middle mouse button
-    pub brush_value: f32,
-    pub brush_size: f32,
-    pub brush_falloff: f32,
+    pub value: f32,
+    pub size: f32,
+    pub falloff: f32,
+    pub opacity: f32,
 }
 pub struct PanelMaskEdit {
     image_size: usize,
@@ -40,9 +41,10 @@ impl PanelMaskEdit {
             image_size,
             mask: None,
             conf: BrushConfig {
-                brush_value: 0.5,
-                brush_size: 0.5,
-                brush_falloff: 0.5,
+                value: 0.5,
+                size: 0.5,
+                falloff: 0.5,
+                opacity: 0.5,
             },
             mesh_updated: false,
             is_painting: false,
@@ -74,24 +76,31 @@ impl PanelMaskEdit {
             ui.horizontal(|ui| {
                 ui.label("brush size");
                 ui.add(
-                    egui::DragValue::new(&mut self.conf.brush_size)
+                    egui::DragValue::new(&mut self.conf.size)
                         .speed(0.01)
                         .clamp_range(1.0 / (MASK_SIZE as f32)..=1.0),
                 );
                 ui.label("falloff");
-                let old_falloff = self.conf.brush_falloff;
+                let old_falloff = self.conf.falloff;
                 ui.add(
-                    egui::DragValue::new(&mut self.conf.brush_falloff)
+                    egui::DragValue::new(&mut self.conf.falloff)
                         .speed(0.01)
                         .clamp_range(0.0..=1.0),
                 );
                 ui.label("value");
                 ui.add(
-                    egui::DragValue::new(&mut self.conf.brush_value)
+                    egui::DragValue::new(&mut self.conf.value)
                         .speed(0.01)
                         .clamp_range(0.0..=1.0),
                 );
-                self.brush_updated = old_falloff != self.conf.brush_falloff;
+                ui.label("opacity");
+                ui.add(
+                    egui::DragValue::new(&mut self.conf.opacity)
+                        .speed(0.01)
+                        .clamp_range(0.0..=1.0),
+                );
+                // need to update the brush mesh ?
+                self.brush_updated = old_falloff != self.conf.falloff;
             });
         });
         None
@@ -166,12 +175,13 @@ impl PanelMaskEdit {
         if let Some(ref mut mask) = self.mask {
             let mx = canvas_pos.x * MASK_SIZE as f32;
             let my = canvas_pos.y * MASK_SIZE as f32;
-            let brush_radius = brush_config.brush_size * MASK_SIZE as f32 * MAX_BRUSH_SIZE;
-            let falloff_dist = (1.0 - brush_config.brush_falloff) * brush_radius;
+            let brush_radius = brush_config.size * MASK_SIZE as f32 * MAX_BRUSH_SIZE;
+            let falloff_dist = (1.0 - brush_config.falloff) * brush_radius;
             let minx = (mx - brush_radius).max(0.0) as usize;
             let maxx = ((mx + brush_radius) as usize).min(MASK_SIZE);
             let miny = (my - brush_radius).max(0.0) as usize;
             let maxy = ((my + brush_radius) as usize).min(MASK_SIZE);
+            let opacity_factor = 0.5 + brush_config.opacity;
             let (target_value, time_coef) = if lbutton {
                 (0.0, 10.0)
             } else if rbutton {
@@ -179,9 +189,10 @@ impl PanelMaskEdit {
                 (1.0, 3.0)
             } else {
                 // mbutton
-                (brush_config.brush_value, 5.0)
+                (brush_config.value, 5.0)
             };
             let brush_coef = 1.0 / (brush_radius - falloff_dist);
+            let coef = time * time_coef * opacity_factor;
             for y in miny..maxy {
                 let dy = y as f32 - my;
                 let yoff = y * MASK_SIZE;
@@ -199,8 +210,7 @@ impl PanelMaskEdit {
                         1.0 - (dist - falloff_dist) * brush_coef
                     };
                     let current_value = mask[x + yoff];
-                    mask[x + yoff] =
-                        current_value + time * time_coef * alpha * (target_value - current_value);
+                    mask[x + yoff] = current_value + coef * alpha * (target_value - current_value);
                 }
             }
         }
@@ -277,7 +287,7 @@ impl Renderer {
     }
     pub fn update_brush(&mut self, three_d: &three_d::Context, brush_conf: BrushConfig) {
         if let Positions::F32(ref mut vertices) = self.brush_mesh.positions {
-            let inv_fall = 1.0 - brush_conf.brush_falloff;
+            let inv_fall = 1.0 - brush_conf.falloff;
             // update position of inner opaque ring
             for i in 0..32 {
                 let angle = std::f32::consts::PI * 2.0 * (i as f32) / 32.0;
@@ -344,7 +354,7 @@ impl Renderer {
                 5.0 - mouse_pos.y * 10.0,
                 0.1,
             ));
-            let scale = Mat4::from_scale(brush_conf.brush_size * 10.0 * MAX_BRUSH_SIZE);
+            let scale = Mat4::from_scale(brush_conf.size * 10.0 * MAX_BRUSH_SIZE);
             self.brush_model.set_transformation(transfo * scale);
             self.brush_model.render(&camera, &[]).unwrap();
         }

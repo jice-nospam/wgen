@@ -16,14 +16,22 @@ use crate::{
     VERSION,
 };
 
+/// actions to do by the main program
 pub enum GeneratorAction {
-    /// deleteStep, stepIndex
+    /// recompute heightmap from a specific step (deleteStep, stepIndex)
     Regen(bool, usize),
+    /// disable a step and recompute the heightmap
     Disable(usize),
+    /// enable a step and recompute the heightmap
     Enable(usize),
+    /// display a specific step heightmap in the 2D preview
     DisplayLayer(usize),
+    /// display a specific step mask in the 2D preview
     DisplayMask(usize),
+    /// change the RNG seed
     SetSeed(u64),
+    /// remove all steps
+    Clear,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -94,7 +102,7 @@ impl PanelGenerator {
         ui.horizontal(|ui| {
             if ui.button("Clear").clicked() {
                 self.steps.clear();
-                action = Some(GeneratorAction::Regen(false, 0))
+                action = Some(GeneratorAction::Clear)
             }
             ui.label("Seed");
             let old_seed = self.seed;

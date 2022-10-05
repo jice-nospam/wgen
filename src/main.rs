@@ -29,13 +29,21 @@ use worldgen::{generator_thread, ExportMap, WorldGenCommand, WorldGenerator};
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MASK_SIZE: usize = 64;
 
+/// messages sent to the main thread by either world generator or exporter threads
 pub enum ThreadMessage {
+    /// from world generator : all steps have been computed => update 2D/3D previews
     GeneratorDone(ExportMap),
+    /// from world generator : update progress bar
     GeneratorStepProgress(f32),
+    /// from world generator : one step has been computed => update 2D preview if live preview enabled
     GeneratorStepDone(usize, Option<ExportMap>),
+    /// from world generator : return the heightmap for a specific step
     GeneratorStepMap(usize, ExportMap),
+    /// from exporter : one step has been computed
     ExporterStepDone(usize),
+    /// from exporter : export is finished
     ExporterDone(Result<(), String>),
+    /// from exporter : update progress bar
     ExporterStepProgress(f32),
 }
 
@@ -129,7 +137,9 @@ impl MyApp {
     }
     fn regen(&mut self, must_delete: bool, from_idx: usize) {
         self.progress = from_idx as f32 / self.gen_panel.enabled_steps() as f32;
-        self.main2gen_tx.send(WorldGenCommand::Abort).unwrap();
+        self.main2gen_tx
+            .send(WorldGenCommand::Abort(from_idx))
+            .unwrap();
         let len = self.gen_panel.steps.len();
         if must_delete {
             self.main2gen_tx
@@ -216,6 +226,9 @@ impl MyApp {
                 ui.separator();
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     match self.gen_panel.render(ui, self.progress) {
+                        Some(GeneratorAction::Clear) => {
+                            self.main2gen_tx.send(WorldGenCommand::Clear).unwrap();
+                        }
                         Some(GeneratorAction::SetSeed(new_seed)) => {
                             self.set_seed(new_seed);
                         }

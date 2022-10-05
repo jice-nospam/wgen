@@ -12,17 +12,26 @@ use crate::generators::{
 use crate::{log, ThreadMessage, MASK_SIZE};
 
 #[derive(Debug)]
+/// commands sent by the main thread to the world generator thread
 pub enum WorldGenCommand {
-    /// step index, disabled, step conf, live preview, min progress step
+    /// recompute a specific step : step index, step conf, live preview, min progress step
     ExecuteStep(usize, Step, bool, f32),
+    /// remove a step
     DeleteStep(usize),
+    /// enable a step
     EnableStep(usize),
+    /// disable a step
     DisableStep(usize),
+    /// change the heightmap size
     SetSize(usize),
+    /// return the heightmap for a given step
     GetStepMap(usize),
+    /// change the random number generator seed
     SetSeed(u64),
+    /// remove all steps
     Clear,
-    Abort,
+    /// cancel previous undone ExecuteStep commands from a specific step
+    Abort(usize),
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -143,8 +152,15 @@ fn do_command(
                 wgen.get_step_export_map(index),
             ))
             .unwrap(),
-        WorldGenCommand::Abort => {
-            steps.clear();
+        WorldGenCommand::Abort(from_idx) => {
+            let mut i = 0;
+            while i < steps.len() {
+                if steps[i].index >= from_idx {
+                    steps.remove(i);
+                } else {
+                    i += 1;
+                }
+            }
         }
         WorldGenCommand::SetSize(size) => {
             *wgen = WorldGenerator::new(wgen.seed, (size, size));

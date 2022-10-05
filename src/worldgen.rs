@@ -14,7 +14,7 @@ use crate::{log, ThreadMessage, MASK_SIZE};
 #[derive(Debug)]
 /// commands sent by the main thread to the world generator thread
 pub enum WorldGenCommand {
-    /// recompute a specific step : step index, step conf, live preview, min progress step
+    /// recompute a specific step : step index, step conf, live preview, min progress step to report
     ExecuteStep(usize, Step, bool, f32),
     /// remove a step
     DeleteStep(usize),
@@ -35,7 +35,7 @@ pub enum WorldGenCommand {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-/// Each value contains its own configuration, whether this step is disabled and an optional mask
+/// Each value contains its own configuration
 pub enum StepType {
     Hills(HillsConf),
     Fbm(FbmConf),
@@ -48,8 +48,11 @@ pub enum StepType {
 }
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Step {
+    /// should we skip this step when computing the heightmap ?
     pub disabled: bool,
+    /// this step mask
     pub mask: Option<Vec<f32>>,
+    /// step type with its configuration
     pub typ: StepType,
 }
 

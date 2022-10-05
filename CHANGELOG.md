@@ -4,6 +4,9 @@
 ### Added
 - editable masks to each step. Makes it possible to apply a step only on some part of the map
 
+### Fixed
+- Horizontal rotation in the 3D view
+
 ## [0.2.0] - 2022-08-24
 ### Changed
 - improved water erosion algorithm

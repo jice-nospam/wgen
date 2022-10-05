@@ -27,13 +27,21 @@ pub struct MeshData {
 
 #[derive(Clone, Copy)]
 pub struct Panel3dViewConf {
+    /// camera x and y orbit angles
     pub orbit: three_d::Vec2,
+    /// camera x and y pan distances
     pub pan: three_d::Vec2,
+    /// camera zoom in degrees (y field of view is 90 - zoom)
     pub zoom: f32,
+    /// vertical scale to apply to the heightmap
     pub hscale: f32,
+    /// water plane z position
     pub water_level: f32,
+    /// do we display the water plane ?
     pub show_water: bool,
+    /// do we display the grid ?
     pub show_grid: bool,
+    /// do we display the skybox ?
     pub show_skybox: bool,
 }
 

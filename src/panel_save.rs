@@ -4,7 +4,9 @@ use eframe::egui;
 
 use crate::panel_export::TEXTEDIT_WIDTH;
 pub struct PanelSaveLoad {
+    /// the name of the file to load or save
     pub file_path: String,
+    /// the program's current directory
     cur_dir: PathBuf,
 }
 

@@ -19,17 +19,27 @@ const MAX_BRUSH_SIZE: f32 = 0.25;
 pub struct BrushConfig {
     /// value painted with middle mouse button
     pub value: f32,
+    /// brush radius from a single 'pixel' in the heightmap (0.0) to 25% of heightmap's size (1.0)
     pub size: f32,
+    /// brush radius where the opacity starts to falloff from no falloff(0.0) to center of the brush (1.0)
     pub falloff: f32,
+    /// how fast the brush updates the mask 0.0: slow, 1.0: fast
     pub opacity: f32,
 }
 pub struct PanelMaskEdit {
+    /// preview canvas size in pixels
     image_size: usize,
+    /// the mask as a MASK_SIZE x MASK_SIZE f32 matrix
     mask: Option<Vec<f32>>,
+    /// the brush parameters
     conf: BrushConfig,
+    /// should the mesh used to render the mask be updated to reflect changes in mask ?
     mesh_updated: bool,
+    /// should the mesh used to render the brush be updated to reflect a change in brush falloff ?
     brush_updated: bool,
+    /// are we currently modifying the mask (cursor is in canvas and one mouse button is pressed)
     is_painting: bool,
+    /// used to compute the brush impact on the mask depending on elapsed time
     prev_frame_time: f64,
 }
 

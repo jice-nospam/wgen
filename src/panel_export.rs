@@ -6,12 +6,19 @@ pub const TEXTEDIT_WIDTH: f32 = 240.0;
 
 #[derive(Clone)]
 pub struct PanelExport {
+    /// width of each image in pixels
     pub export_width: f32,
+    /// height of each image in pixels
     pub export_height: f32,
+    /// number of horizontal tiles
     pub tiles_h: f32,
+    /// number of vertical tiles
     pub tiles_v: f32,
+    /// image filename prefix
     pub file_path: String,
+    /// to disable the exporter ui during export
     pub enabled: bool,
+    /// program's current directory
     cur_dir: PathBuf,
 }
 

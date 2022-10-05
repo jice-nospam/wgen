@@ -11,15 +11,25 @@ pub enum Panel2dAction {
     MaskUpdated,
 }
 pub struct Panel2dView {
+    /// preview image of the heightmap
     img: ColorImage,
+    /// minimum value in the heightmap
     min: f32,
+    /// maximum value in the heightmap
     max: f32,
+    /// are we displaying the mask editor ?
     mask_mode: bool,
+    /// size of the preview canvas in pixels
     image_size: usize,
+    /// size of the heightmap
     preview_size: usize,
+    /// should we update the preview every time a step is computed ?
     pub live_preview: bool,
+    /// utility to display FPS
     fps_counter: FpsCounter,
+    /// egui renderable image
     ui_img: Option<RetainedImage>,
+    /// mask editor subpanel
     mask_editor: PanelMaskEdit,
 }
 

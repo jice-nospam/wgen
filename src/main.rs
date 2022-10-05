@@ -65,24 +65,38 @@ fn main() {
 }
 
 struct MyApp {
-    enabled: bool,
+    /// size in pixels of the 2D preview canvas
     image_size: usize,
+    /// size of the preview heightmap (from 64x64 to 512x512)
     preview_size: usize,
+    /// current world generator progress
     progress: f32,
+    /// exporter progress
     exporter_progress: f32,
+    /// exporter progress bar text
     exporter_text: String,
+    /// exporter current step
     exporter_cur_step: usize,
+    /// random number generator's seed
     seed: u64,
+    // ui widgets
     gen_panel: PanelGenerator,
     export_panel: PanelExport,
     panel_3d: Panel3dView,
     panel_2d: Panel2dView,
-    mask_step: Option<usize>,
     load_save_panel: PanelSaveLoad,
+    // thread communication
+    /// channel to receive messages from either world generator or exporter
     thread2main_rx: Receiver<ThreadMessage>,
-    main2gen_tx: Sender<WorldGenCommand>,
-    thread2main_tx: Sender<ThreadMessage>,
+    /// channel to send messages to the world generator thread
+    main2wgen_tx: Sender<WorldGenCommand>,
+    /// channel to send messages to the main thread from the exporter thread
+    exp2main_tx: Sender<ThreadMessage>,
+    /// an error to display in a popup
     err_msg: Option<String>,
+    /// are we editing a mask ?
+    mask_step: Option<usize>,
+    /// last time the mask was updated
     last_mask_updated: f64,
 }
 
@@ -94,15 +108,14 @@ impl Default for MyApp {
         let wgen = WorldGenerator::new(seed, (preview_size, preview_size));
         let panel_2d = Panel2dView::new(image_size, preview_size as u32, &wgen.get_export_map());
         // generator -> main channel
-        let (thread2main_tx, thread2main_rx) = mpsc::channel();
+        let (exp2main_tx, thread2main_rx) = mpsc::channel();
         // main -> generator channel
         let (main2gen_tx, gen_rx) = mpsc::channel();
-        let gen_tx = thread2main_tx.clone();
+        let gen_tx = exp2main_tx.clone();
         thread::spawn(move || {
             generator_thread(seed, preview_size, gen_rx, gen_tx);
         });
         Self {
-            enabled: true,
             image_size,
             preview_size,
             seed,
@@ -117,8 +130,8 @@ impl Default for MyApp {
             export_panel: PanelExport::default(),
             load_save_panel: PanelSaveLoad::default(),
             thread2main_rx,
-            main2gen_tx,
-            thread2main_tx,
+            main2wgen_tx: main2gen_tx,
+            exp2main_tx,
             err_msg: None,
             last_mask_updated: 0.0,
         }
@@ -130,7 +143,7 @@ impl MyApp {
         let steps = self.gen_panel.steps.clone();
         let export_panel = self.export_panel.clone();
         let seed = self.seed;
-        let tx = self.thread2main_tx.clone();
+        let tx = self.exp2main_tx.clone();
         let min_progress_step = 0.01 * self.gen_panel.enabled_steps() as f32;
         thread::spawn(move || {
             let res = export_heightmap(seed, &steps, &export_panel, tx.clone(), min_progress_step);
@@ -139,12 +152,12 @@ impl MyApp {
     }
     fn regen(&mut self, must_delete: bool, from_idx: usize) {
         self.progress = from_idx as f32 / self.gen_panel.enabled_steps() as f32;
-        self.main2gen_tx
+        self.main2wgen_tx
             .send(WorldGenCommand::Abort(from_idx))
             .unwrap();
         let len = self.gen_panel.steps.len();
         if must_delete {
-            self.main2gen_tx
+            self.main2wgen_tx
                 .send(WorldGenCommand::DeleteStep(from_idx))
                 .unwrap();
         }
@@ -152,7 +165,7 @@ impl MyApp {
             return;
         }
         for i in from_idx.min(len - 1)..len {
-            self.main2gen_tx
+            self.main2wgen_tx
                 .send(WorldGenCommand::ExecuteStep(
                     i,
                     self.gen_panel.steps[i].clone(),
@@ -165,7 +178,7 @@ impl MyApp {
     }
     fn set_seed(&mut self, new_seed: u64) {
         self.seed = new_seed;
-        self.main2gen_tx
+        self.main2wgen_tx
             .send(WorldGenCommand::SetSeed(new_seed))
             .unwrap();
         self.regen(false, 0);
@@ -175,127 +188,118 @@ impl MyApp {
             return;
         }
         self.preview_size = new_size;
-        self.main2gen_tx
+        self.main2wgen_tx
             .send(WorldGenCommand::SetSize(new_size))
             .unwrap();
         self.regen(false, 0);
     }
     fn render_left_panel(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("Generation").show(ctx, |ui| {
-            ui.add_enabled_ui(self.enabled, |ui| {
-                ui.label(format!("wgen {}", VERSION));
-                ui.separator();
-                if self
-                    .export_panel
-                    .render(ui, self.exporter_progress, &self.exporter_text)
-                {
-                    self.export_panel.enabled = false;
-                    self.exporter_progress = 0.0;
-                    self.exporter_cur_step = 0;
-                    self.export();
-                }
-                ui.separator();
-                match self.load_save_panel.render(ui) {
-                    Some(SaveLoadAction::Load) => {
-                        if let Err(msg) = self.gen_panel.load(self.load_save_panel.get_file_path())
-                        {
-                            let err_msg = format!(
-                                "Error while reading project {} : {}",
-                                self.load_save_panel.get_file_path(),
-                                msg
-                            );
-                            println!("{}", err_msg);
-                            self.err_msg = Some(err_msg);
-                        } else {
-                            self.main2gen_tx.send(WorldGenCommand::Clear).unwrap();
-                            self.set_seed(self.gen_panel.seed);
-                        }
+            ui.label(format!("wgen {}", VERSION));
+            ui.separator();
+            if self
+                .export_panel
+                .render(ui, self.exporter_progress, &self.exporter_text)
+            {
+                self.export_panel.enabled = false;
+                self.exporter_progress = 0.0;
+                self.exporter_cur_step = 0;
+                self.export();
+            }
+            ui.separator();
+            match self.load_save_panel.render(ui) {
+                Some(SaveLoadAction::Load) => {
+                    if let Err(msg) = self.gen_panel.load(self.load_save_panel.get_file_path()) {
+                        let err_msg = format!(
+                            "Error while reading project {} : {}",
+                            self.load_save_panel.get_file_path(),
+                            msg
+                        );
+                        println!("{}", err_msg);
+                        self.err_msg = Some(err_msg);
+                    } else {
+                        self.main2wgen_tx.send(WorldGenCommand::Clear).unwrap();
+                        self.set_seed(self.gen_panel.seed);
                     }
-                    Some(SaveLoadAction::Save) => {
-                        if let Err(msg) = self.gen_panel.save(self.load_save_panel.get_file_path())
-                        {
-                            let err_msg = format!(
-                                "Error while writing project {} : {}",
-                                self.load_save_panel.get_file_path(),
-                                msg
-                            );
-                            println!("{}", err_msg);
-                            self.err_msg = Some(err_msg);
-                        }
+                }
+                Some(SaveLoadAction::Save) => {
+                    if let Err(msg) = self.gen_panel.save(self.load_save_panel.get_file_path()) {
+                        let err_msg = format!(
+                            "Error while writing project {} : {}",
+                            self.load_save_panel.get_file_path(),
+                            msg
+                        );
+                        println!("{}", err_msg);
+                        self.err_msg = Some(err_msg);
+                    }
+                }
+                None => (),
+            }
+            ui.separator();
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                match self.gen_panel.render(ui, self.progress) {
+                    Some(GeneratorAction::Clear) => {
+                        self.main2wgen_tx.send(WorldGenCommand::Clear).unwrap();
+                    }
+                    Some(GeneratorAction::SetSeed(new_seed)) => {
+                        self.set_seed(new_seed);
+                    }
+                    Some(GeneratorAction::Regen(must_delete, from_idx)) => {
+                        self.regen(must_delete, from_idx);
+                    }
+                    Some(GeneratorAction::Disable(idx)) => {
+                        self.main2wgen_tx
+                            .send(WorldGenCommand::DisableStep(idx))
+                            .unwrap();
+                        self.regen(false, idx);
+                    }
+                    Some(GeneratorAction::Enable(idx)) => {
+                        self.main2wgen_tx
+                            .send(WorldGenCommand::EnableStep(idx))
+                            .unwrap();
+                        self.regen(false, idx);
+                    }
+                    Some(GeneratorAction::DisplayLayer(step)) => {
+                        self.main2wgen_tx
+                            .send(WorldGenCommand::GetStepMap(step))
+                            .unwrap();
+                    }
+                    Some(GeneratorAction::DisplayMask(step)) => {
+                        self.mask_step = Some(step);
+                        let mask = if let Some(ref mask) = self.gen_panel.steps[step].mask {
+                            Some(mask.clone())
+                        } else {
+                            Some(vec![1.0; MASK_SIZE * MASK_SIZE])
+                        };
+                        self.panel_2d
+                            .display_mask(self.image_size, self.preview_size as u32, mask);
                     }
                     None => (),
                 }
-                ui.separator();
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    match self.gen_panel.render(ui, self.progress) {
-                        Some(GeneratorAction::Clear) => {
-                            self.main2gen_tx.send(WorldGenCommand::Clear).unwrap();
-                        }
-                        Some(GeneratorAction::SetSeed(new_seed)) => {
-                            self.set_seed(new_seed);
-                        }
-                        Some(GeneratorAction::Regen(must_delete, from_idx)) => {
-                            self.regen(must_delete, from_idx);
-                        }
-                        Some(GeneratorAction::Disable(idx)) => {
-                            self.main2gen_tx
-                                .send(WorldGenCommand::DisableStep(idx))
-                                .unwrap();
-                            self.regen(false, idx);
-                        }
-                        Some(GeneratorAction::Enable(idx)) => {
-                            self.main2gen_tx
-                                .send(WorldGenCommand::EnableStep(idx))
-                                .unwrap();
-                            self.regen(false, idx);
-                        }
-                        Some(GeneratorAction::DisplayLayer(step)) => {
-                            self.main2gen_tx
-                                .send(WorldGenCommand::GetStepMap(step))
-                                .unwrap();
-                        }
-                        Some(GeneratorAction::DisplayMask(step)) => {
-                            self.mask_step = Some(step);
-                            let mask = if let Some(ref mask) = self.gen_panel.steps[step].mask {
-                                Some(mask.clone())
-                            } else {
-                                Some(vec![1.0; MASK_SIZE * MASK_SIZE])
-                            };
-                            self.panel_2d.display_mask(
-                                self.image_size,
-                                self.preview_size as u32,
-                                mask,
-                            );
-                        }
-                        None => (),
-                    }
-                });
-            })
+            });
         });
     }
     fn render_central_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.add_enabled_ui(self.enabled, |ui| {
-                ui.heading("Terrain preview");
-                ui.horizontal(|ui| {
-                    egui::CollapsingHeader::new("2d preview")
-                        .default_open(true)
-                        .show(ui, |ui| match self.panel_2d.render(ui) {
-                            Some(Panel2dAction::ResizePreview(new_size)) => {
-                                self.resize(new_size);
-                            }
-                            Some(Panel2dAction::MaskUpdated) => {
-                                self.last_mask_updated = ui.input().time;
-                            }
-                            None => (),
-                        });
-                    egui::CollapsingHeader::new("3d preview")
-                        .default_open(true)
-                        .show(ui, |ui| {
-                            self.panel_3d.render(ui);
-                        });
-                });
-            })
+            ui.heading("Terrain preview");
+            ui.horizontal(|ui| {
+                egui::CollapsingHeader::new("2d preview")
+                    .default_open(true)
+                    .show(ui, |ui| match self.panel_2d.render(ui) {
+                        Some(Panel2dAction::ResizePreview(new_size)) => {
+                            self.resize(new_size);
+                        }
+                        Some(Panel2dAction::MaskUpdated) => {
+                            self.last_mask_updated = ui.input().time;
+                        }
+                        None => (),
+                    });
+                egui::CollapsingHeader::new("3d preview")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        self.panel_3d.render(ui);
+                    });
+            });
         });
     }
     fn handle_threads_messages(&mut self) {
@@ -309,7 +313,6 @@ impl MyApp {
                 log("main<=Done");
                 self.panel_2d
                     .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
-                self.enabled = true;
                 self.gen_panel.selected_step = self.gen_panel.steps.len() - 1;
                 self.panel_3d.update_mesh(&hmap);
                 self.gen_panel.is_running = false;
@@ -369,7 +372,6 @@ impl MyApp {
                     self.err_msg = Some(err_msg);
                 }
                 log("main<=ExporterDone");
-                self.enabled = true;
                 self.exporter_progress = 1.0;
                 self.export_panel.enabled = true;
                 self.exporter_cur_step = 0;

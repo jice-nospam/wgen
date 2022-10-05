@@ -36,16 +36,25 @@ pub enum GeneratorAction {
 
 #[derive(Serialize, Deserialize)]
 pub struct PanelGenerator {
+    /// to avoid loading a save from another version
     version: String,
     #[serde(skip)]
+    /// is the world generator currently computing the heightmap?
     pub is_running: bool,
     #[serde(skip)]
+    /// are we currently displaying a mask or a heightmap ?
     pub mask_selected: bool,
+    /// generator steps with their configuration and masks
     pub steps: Vec<Step>,
+    /// current selected step. used for combo box. must be outside of steps in case steps is empty
     cur_step: Step,
+    /// current selected step index
     pub selected_step: usize,
+    /// current drag n drop destination
     move_to_pos: usize,
+    /// is the drag n drop zone currently hovered by the mouse cursor?
     hovered: bool,
+    /// random number generator's seed
     pub seed: u64,
 }
 

@@ -7,10 +7,15 @@ use crate::{
 };
 
 pub fn export_heightmap(
+    // random number generator's seed to use
     seed: u64,
+    // list of generator steps with their configuration and optional masks
     steps: &[Step],
+    // size and number of files to export, file name pattern
     export_data: &PanelExport,
+    // channel to send feedback messages to the main thread
     tx: Sender<ThreadMessage>,
+    // minimum amount of progress to report (below this value, the global %age won't change)
     min_progress_step: f32,
 ) -> Result<(), String> {
     let file_width = export_data.export_width as usize;

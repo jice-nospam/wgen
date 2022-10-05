@@ -95,7 +95,7 @@ impl PanelGenerator {
         ui.horizontal(|ui| {
             ui.heading("Generators");
             if self.is_running {
-                ui.add(egui::Spinner::new());
+                ui.spinner();
             }
         });
         ui.add(egui::ProgressBar::new(progress).show_percentage());

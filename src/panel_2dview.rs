@@ -85,7 +85,7 @@ impl Panel2dView {
         }
         self.img = Some(RetainedImage::from_color_image("hmap", img));
     }
-    pub fn render(&mut self, ui: &mut egui::Ui) -> Option<Panel2dAction> {
+    pub fn render(&mut self, ui: &mut egui::Ui, spinner: bool) -> Option<Panel2dAction> {
         let old_size = self.preview_size;
         self.fps_counter.new_frame();
         if self.mask_mode {
@@ -95,7 +95,12 @@ impl Panel2dView {
                 if let Some(img) = &self.img {
                     img.show(ui);
                 }
-                ui.label(format!("Height range : {} - {}", self.min, self.max));
+                ui.horizontal(|ui| {
+                    ui.label(format!("Height range : {} - {}", self.min, self.max));
+                    if spinner {
+                        ui.spinner();
+                    }
+                });
             });
         }
         ui.label(format!("FPS : {}", self.fps_counter.fps()));

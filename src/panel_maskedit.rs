@@ -68,7 +68,7 @@ impl PanelMaskEdit {
             ui.horizontal(|ui| {
                 ui.label("mouse buttons : left increase, right decrease, middle set brush value");
                 if self.is_painting {
-                    ui.add(egui::Spinner::new());
+                    ui.spinner();
                 } else {
                     self.prev_frame_time = -1.0;
                 }

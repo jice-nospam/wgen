@@ -280,7 +280,7 @@ impl MyApp {
                         .default_open(true)
                         .show(ui, |ui| {
                             if let Some(Panel2dAction::ResizePreview(new_size)) =
-                                self.panel_2d.render(ui)
+                                self.panel_2d.render(ui, self.gen_panel.is_running)
                             {
                                 self.resize(new_size);
                             }

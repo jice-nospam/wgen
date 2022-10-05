@@ -292,6 +292,12 @@ impl MyApp {
                         Some(Panel2dAction::MaskUpdated) => {
                             self.last_mask_updated = ui.input().time;
                         }
+                        Some(Panel2dAction::MaskDelete) => {
+                            if let Some(step) = self.mask_step {
+                                self.gen_panel.steps[step].mask = None;
+                            }
+                            self.last_mask_updated = 0.0;
+                        }
                         None => (),
                     });
                 egui::CollapsingHeader::new("3d preview")

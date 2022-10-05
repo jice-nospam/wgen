@@ -110,6 +110,19 @@ impl PanelMaskEdit {
                 // need to update the brush mesh ?
                 self.brush_updated = old_falloff != self.conf.falloff;
             });
+            ui.horizontal(|ui| {
+                if ui
+                    .button("Clear")
+                    .on_hover_text("Delete this mask")
+                    .clicked()
+                {
+                    action = Some(Panel2dAction::MaskDelete);
+                    if let Some(ref mut mask) = self.mask {
+                        mask.fill(1.0);
+                        self.mesh_updated = true;
+                    }
+                }
+            });
         });
         action
     }

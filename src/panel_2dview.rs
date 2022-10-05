@@ -9,6 +9,8 @@ pub enum Panel2dAction {
     ResizePreview(usize),
     /// inform the main program that mask must be copied to the generator panel
     MaskUpdated,
+    /// inform the main program that mask must be deleted in the generator panel
+    MaskDelete,
 }
 pub struct Panel2dView {
     /// preview image of the heightmap

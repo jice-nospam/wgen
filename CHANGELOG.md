@@ -4,6 +4,9 @@
 ### Added
 - editable masks to each step. Makes it possible to apply a step only on some part of the map
 
+### Changed
+- improved overall performance and UI responsiveness
+
 ### Fixed
 - Horizontal rotation in the 3D view
 

@@ -1,7 +1,6 @@
 use eframe::egui;
 use egui_extras::RetainedImage;
 use epaint::{Color32, ColorImage};
-use image::{imageops::FilterType, GrayImage, Luma};
 
 use crate::{fps::FpsCounter, panel_maskedit::PanelMaskEdit, worldgen::ExportMap};
 
@@ -9,7 +8,7 @@ pub enum Panel2dAction {
     ResizePreview(usize),
 }
 pub struct Panel2dView {
-    buff: GrayImage,
+    img: ColorImage,
     min: f32,
     max: f32,
     mask_mode: bool,
@@ -17,14 +16,14 @@ pub struct Panel2dView {
     preview_size: usize,
     pub live_preview: bool,
     fps_counter: FpsCounter,
-    img: Option<RetainedImage>,
+    ui_img: Option<RetainedImage>,
     mask_editor: PanelMaskEdit,
 }
 
 impl Panel2dView {
     pub fn new(image_size: usize, preview_size: u32, hmap: &ExportMap) -> Self {
         let mut panel = Panel2dView {
-            buff: GrayImage::new(1, 1),
+            img: ColorImage::new([image_size, image_size], Color32::BLACK),
             min: 0.0,
             max: 0.0,
             image_size,
@@ -32,7 +31,7 @@ impl Panel2dView {
             live_preview: true,
             preview_size: preview_size as usize,
             fps_counter: FpsCounter::default(),
-            img: None,
+            ui_img: None,
             mask_editor: PanelMaskEdit::new(image_size),
         };
         panel.refresh(image_size, preview_size, Some(hmap));
@@ -51,7 +50,10 @@ impl Panel2dView {
         self.image_size = image_size;
         self.mask_mode = false;
         self.preview_size = preview_size as usize;
-        let buff = if let Some(hmap) = hmap {
+        if self.img.width() != image_size {
+            self.img = ColorImage::new([self.image_size, self.image_size], Color32::BLACK);
+        }
+        if let Some(hmap) = hmap {
             let (min, max) = hmap.get_min_max();
             let coef = if max - min > std::f32::EPSILON {
                 1.0 / (max - min)
@@ -60,30 +62,19 @@ impl Panel2dView {
             };
             self.min = min;
             self.max = max;
-            GrayImage::from_fn(preview_size, preview_size, |x, y| {
-                let mut h = hmap.height(x as usize, y as usize);
-                h = (h - min) * coef;
-                Luma([(h * 255.0).clamp(0.0, 255.0) as u8])
-            })
-        } else {
-            GrayImage::new(1, 1)
-        };
-        self.buff = image::imageops::resize(
-            &buff,
-            self.image_size as u32,
-            self.image_size as u32,
-            FilterType::Nearest,
-        );
-        let mut img = ColorImage::new([self.image_size, self.image_size], Color32::BLACK);
-        for y in 0..self.image_size {
-            for x in 0..self.image_size {
-                let rgb = self.buff.get_pixel(x as u32, y as u32)[0];
-                img[(x, y)][0] = rgb;
-                img[(x, y)][1] = rgb;
-                img[(x, y)][2] = rgb;
+            let mut idx = 0;
+            for y in 0..image_size {
+                let py = ((y * preview_size as usize) as f32 / image_size as f32) as usize;
+                for x in 0..image_size {
+                    let px = ((x * preview_size as usize) as f32 / image_size as f32) as usize;
+                    let mut h = hmap.height(px as usize, py as usize);
+                    h = (h - min) * coef;
+                    self.img.pixels[idx] = Color32::from_gray((h * 255.0).clamp(0.0, 255.0) as u8);
+                    idx += 1;
+                }
             }
-        }
-        self.img = Some(RetainedImage::from_color_image("hmap", img));
+        };
+        self.ui_img = Some(RetainedImage::from_color_image("hmap", self.img.clone()));
     }
     pub fn render(&mut self, ui: &mut egui::Ui) -> Option<Panel2dAction> {
         let old_size = self.preview_size;
@@ -92,7 +83,7 @@ impl Panel2dView {
             self.mask_editor.render(ui);
         } else {
             ui.vertical(|ui| {
-                if let Some(img) = &self.img {
+                if let Some(img) = &self.ui_img {
                     img.show(ui);
                 }
                 ui.horizontal(|ui| {

@@ -10,9 +10,7 @@ use three_d::{
     Indices, Mat4, Model, Object, Positions, Viewport,
 };
 
-use crate::MASK_SIZE;
-
-pub enum PanelMaskEditAction {}
+use crate::{panel_2dview::Panel2dAction, MASK_SIZE};
 
 /// maximum size of the brush relative to the canvas
 const MAX_BRUSH_SIZE: f32 = 0.25;
@@ -60,12 +58,14 @@ impl PanelMaskEdit {
         self.mesh_updated = true;
         self.mask = mask.or_else(|| Some(vec![1.0; MASK_SIZE * MASK_SIZE]));
     }
-    pub fn render(&mut self, ui: &mut egui::Ui) -> Option<PanelMaskEditAction> {
+    pub fn render(&mut self, ui: &mut egui::Ui) -> Option<Panel2dAction> {
+        let mut action = None;
         ui.vertical(|ui| {
             egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
                 self.render_3dview(ui);
             });
             if self.is_painting {
+                action = Some(Panel2dAction::MaskUpdated);
                 ui.ctx().request_repaint();
             } else {
                 self.prev_frame_time = -1.0;
@@ -101,7 +101,7 @@ impl PanelMaskEdit {
                 self.brush_updated = old_falloff != self.conf.falloff;
             });
         });
-        None
+        action
     }
     fn render_3dview(&mut self, ui: &mut egui::Ui) {
         let (rect, response) = ui.allocate_exact_size(

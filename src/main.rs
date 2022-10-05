@@ -83,6 +83,7 @@ struct MyApp {
     main2gen_tx: Sender<WorldGenCommand>,
     thread2main_tx: Sender<ThreadMessage>,
     err_msg: Option<String>,
+    last_mask_updated: f64,
 }
 
 impl Default for MyApp {
@@ -119,6 +120,7 @@ impl Default for MyApp {
             main2gen_tx,
             thread2main_tx,
             err_msg: None,
+            last_mask_updated: 0.0,
         }
     }
 }
@@ -278,12 +280,14 @@ impl MyApp {
                 ui.horizontal(|ui| {
                     egui::CollapsingHeader::new("2d preview")
                         .default_open(true)
-                        .show(ui, |ui| {
-                            if let Some(Panel2dAction::ResizePreview(new_size)) =
-                                self.panel_2d.render(ui)
-                            {
+                        .show(ui, |ui| match self.panel_2d.render(ui) {
+                            Some(Panel2dAction::ResizePreview(new_size)) => {
                                 self.resize(new_size);
                             }
+                            Some(Panel2dAction::MaskUpdated) => {
+                                self.last_mask_updated = ui.input().time;
+                            }
+                            None => (),
                         });
                     egui::CollapsingHeader::new("3d preview")
                         .default_open(true)
@@ -337,10 +341,7 @@ impl eframe::App for MyApp {
             Ok(ThreadMessage::GeneratorStepMap(_idx, hmap)) => {
                 if let Some(step) = self.mask_step {
                     // mask was updated, update step
-                    if let Some(mask) = self.panel_2d.get_current_mask() {
-                        self.gen_panel.steps[step].mask = Some(mask);
-                        self.regen(false, step);
-                    }
+                    self.regen(false, step);
                     self.mask_step = None;
                 }
                 self.panel_2d
@@ -391,6 +392,16 @@ impl eframe::App for MyApp {
         }
         self.render_left_panel(ctx);
         self.render_central_panel(ctx);
+        if self.last_mask_updated > 0.0 && ctx.input().time - self.last_mask_updated >= 0.5 {
+            if let Some(step) = self.mask_step {
+                // mask was updated, copy mask to generator step
+                if let Some(mask) = self.panel_2d.get_current_mask() {
+                    self.gen_panel.steps[step].mask = Some(mask);
+                }
+            }
+            self.last_mask_updated = 0.0;
+        }
+
         if let Some(ref err_msg) = self.err_msg {
             let mut open = true;
             egui::Window::new("Error")

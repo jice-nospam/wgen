@@ -5,7 +5,10 @@ use epaint::{Color32, ColorImage};
 use crate::{fps::FpsCounter, panel_maskedit::PanelMaskEdit, worldgen::ExportMap};
 
 pub enum Panel2dAction {
+    /// inform the main program that the preview size has changed. terrain/3d view must be recomputed
     ResizePreview(usize),
+    /// inform the main program that mask must be copied to the generator panel
+    MaskUpdated,
 }
 pub struct Panel2dView {
     img: ColorImage,
@@ -77,10 +80,11 @@ impl Panel2dView {
         self.ui_img = Some(RetainedImage::from_color_image("hmap", self.img.clone()));
     }
     pub fn render(&mut self, ui: &mut egui::Ui) -> Option<Panel2dAction> {
+        let mut action = None;
         let old_size = self.preview_size;
         self.fps_counter.new_frame();
         if self.mask_mode {
-            self.mask_editor.render(ui);
+            action = self.mask_editor.render(ui);
         } else {
             ui.vertical(|ui| {
                 if let Some(img) = &self.ui_img {
@@ -106,8 +110,8 @@ impl Panel2dView {
             ui.checkbox(&mut self.live_preview, "");
         });
         if self.preview_size != old_size {
-            return Some(Panel2dAction::ResizePreview(self.preview_size));
+            action = Some(Panel2dAction::ResizePreview(self.preview_size));
         }
-        None
+        action
     }
 }

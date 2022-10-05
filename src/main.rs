@@ -298,21 +298,7 @@ impl MyApp {
             })
         });
     }
-}
-
-impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        let wsize = frame.info().window_info.size;
-        let new_size = ((wsize.x - 340.0) * 0.5) as usize;
-        if new_size != self.image_size && new_size != 0 {
-            // handle window resizing
-            self.image_size = new_size;
-            self.panel_2d
-                .refresh(self.image_size, self.preview_size as u32, None);
-            self.panel_3d = Panel3dView::new(self.image_size as f32);
-            self.regen(false, 0);
-        }
-        ctx.set_visuals(Visuals::dark());
+    fn handle_threads_messages(&mut self) {
         match self.thread2main_rx.try_recv() {
             Ok(ThreadMessage::GeneratorStepProgress(progress)) => {
                 let progstep = 1.0 / self.gen_panel.enabled_steps() as f32;
@@ -339,8 +325,9 @@ impl eframe::App for MyApp {
                 self.progress = (step + 1) as f32 / self.gen_panel.enabled_steps() as f32
             }
             Ok(ThreadMessage::GeneratorStepMap(_idx, hmap)) => {
+                // display heightmap from a specific step in the 2d preview
                 if let Some(step) = self.mask_step {
-                    // mask was updated, update step
+                    // mask was updated, recompute terrain
                     self.regen(false, step);
                     self.mask_step = None;
                 }
@@ -390,6 +377,23 @@ impl eframe::App for MyApp {
             }
             Err(_) => {}
         }
+    }
+}
+
+impl eframe::App for MyApp {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let wsize = frame.info().window_info.size;
+        let new_size = ((wsize.x - 340.0) * 0.5) as usize;
+        if new_size != self.image_size && new_size != 0 {
+            // handle window resizing
+            self.image_size = new_size;
+            self.panel_2d
+                .refresh(self.image_size, self.preview_size as u32, None);
+            self.panel_3d = Panel3dView::new(self.image_size as f32);
+            self.regen(false, 0);
+        }
+        ctx.set_visuals(Visuals::dark());
+        self.handle_threads_messages();
         self.render_left_panel(ctx);
         self.render_central_panel(ctx);
         if self.last_mask_updated > 0.0 && ctx.input().time - self.last_mask_updated >= 0.5 {
@@ -403,6 +407,7 @@ impl eframe::App for MyApp {
         }
 
         if let Some(ref err_msg) = self.err_msg {
+            // display error popup
             let mut open = true;
             egui::Window::new("Error")
                 .resizable(false)

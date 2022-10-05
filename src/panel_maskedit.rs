@@ -65,14 +65,12 @@ impl PanelMaskEdit {
             egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
                 self.render_3dview(ui);
             });
-            ui.horizontal(|ui| {
-                ui.label("mouse buttons : left increase, right decrease, middle set brush value");
-                if self.is_painting {
-                    ui.spinner();
-                } else {
-                    self.prev_frame_time = -1.0;
-                }
-            });
+            if self.is_painting {
+                ui.ctx().request_repaint();
+            } else {
+                self.prev_frame_time = -1.0;
+            }
+            ui.label("mouse buttons : left increase, right decrease, middle set brush value");
             ui.horizontal(|ui| {
                 ui.label("brush size");
                 ui.add(

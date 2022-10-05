@@ -280,7 +280,7 @@ impl MyApp {
                         .default_open(true)
                         .show(ui, |ui| {
                             if let Some(Panel2dAction::ResizePreview(new_size)) =
-                                self.panel_2d.render(ui, self.gen_panel.is_running)
+                                self.panel_2d.render(ui)
                             {
                                 self.resize(new_size);
                             }
@@ -309,93 +309,85 @@ impl eframe::App for MyApp {
             self.regen(false, 0);
         }
         ctx.set_visuals(Visuals::dark());
-        loop {
-            match self.thread2main_rx.try_recv() {
-                Ok(ThreadMessage::GeneratorStepProgress(progress)) => {
-                    let progstep = 1.0 / self.gen_panel.enabled_steps() as f32;
-                    self.progress = (self.progress / progstep).floor() * progstep;
-                    self.progress += progress * progstep;
-                }
-                Ok(ThreadMessage::GeneratorDone(hmap)) => {
-                    log("main<=Done");
+        match self.thread2main_rx.try_recv() {
+            Ok(ThreadMessage::GeneratorStepProgress(progress)) => {
+                let progstep = 1.0 / self.gen_panel.enabled_steps() as f32;
+                self.progress = (self.progress / progstep).floor() * progstep;
+                self.progress += progress * progstep;
+            }
+            Ok(ThreadMessage::GeneratorDone(hmap)) => {
+                log("main<=Done");
+                self.panel_2d
+                    .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
+                self.enabled = true;
+                self.gen_panel.selected_step = self.gen_panel.steps.len() - 1;
+                self.panel_3d.update_mesh(&hmap);
+                self.gen_panel.is_running = false;
+                self.progress = 1.0;
+            }
+            Ok(ThreadMessage::GeneratorStepDone(step, hmap)) => {
+                log(&format!("main<=GeneratorStepDone({})", step));
+                if let Some(ref hmap) = hmap {
                     self.panel_2d
-                        .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
-                    self.enabled = true;
-                    self.gen_panel.selected_step = self.gen_panel.steps.len() - 1;
-                    self.panel_3d.update_mesh(&hmap);
-                    self.gen_panel.is_running = false;
-                    self.progress = 1.0;
+                        .refresh(self.image_size, self.preview_size as u32, Some(hmap));
                 }
-                Ok(ThreadMessage::GeneratorStepDone(step, hmap)) => {
-                    log(&format!("main<=GeneratorStepDone({})", step));
-                    if let Some(ref hmap) = hmap {
-                        self.panel_2d.refresh(
-                            self.image_size,
-                            self.preview_size as u32,
-                            Some(hmap),
-                        );
+                self.gen_panel.selected_step = step;
+                self.progress = (step + 1) as f32 / self.gen_panel.enabled_steps() as f32
+            }
+            Ok(ThreadMessage::GeneratorStepMap(_idx, hmap)) => {
+                if let Some(step) = self.mask_step {
+                    // mask was updated, update step
+                    if let Some(mask) = self.panel_2d.get_current_mask() {
+                        self.gen_panel.steps[step].mask = Some(mask);
+                        self.regen(false, step);
                     }
-                    self.gen_panel.selected_step = step;
-                    self.progress = (step + 1) as f32 / self.gen_panel.enabled_steps() as f32
+                    self.mask_step = None;
                 }
-                Ok(ThreadMessage::GeneratorStepMap(_idx, hmap)) => {
-                    if let Some(step) = self.mask_step {
-                        // mask was updated, update step
-                        if let Some(mask) = self.panel_2d.get_current_mask() {
-                            self.gen_panel.steps[step].mask = Some(mask);
-                            self.regen(false, step);
-                        }
-                        self.mask_step = None;
-                    }
-                    self.panel_2d
-                        .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
-                }
-                Ok(ThreadMessage::ExporterStepProgress(progress)) => {
-                    let progstep = 1.0 / self.gen_panel.enabled_steps() as f32;
-                    self.exporter_progress = (self.exporter_progress / progstep).floor() * progstep;
-                    self.exporter_progress += progress * progstep;
+                self.panel_2d
+                    .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
+            }
+            Ok(ThreadMessage::ExporterStepProgress(progress)) => {
+                let progstep = 1.0 / self.gen_panel.enabled_steps() as f32;
+                self.exporter_progress = (self.exporter_progress / progstep).floor() * progstep;
+                self.exporter_progress += progress * progstep;
+                self.exporter_text = format!(
+                    "{}% {}/{} {}",
+                    (self.exporter_progress * 100.0) as usize,
+                    self.exporter_cur_step + 1,
+                    self.gen_panel.steps.len(),
+                    self.gen_panel.steps[self.exporter_cur_step]
+                );
+            }
+            Ok(ThreadMessage::ExporterStepDone(step)) => {
+                log(&format!("main<=ExporterStepDone({})", step));
+                self.exporter_progress = (step + 1) as f32 / self.gen_panel.enabled_steps() as f32;
+                self.exporter_cur_step = step + 1;
+                if step + 1 == self.gen_panel.steps.len() {
+                    self.exporter_text = "Saving png...".to_owned();
+                } else {
                     self.exporter_text = format!(
                         "{}% {}/{} {}",
                         (self.exporter_progress * 100.0) as usize,
-                        self.exporter_cur_step + 1,
+                        step + 1,
                         self.gen_panel.steps.len(),
                         self.gen_panel.steps[self.exporter_cur_step]
                     );
                 }
-                Ok(ThreadMessage::ExporterStepDone(step)) => {
-                    log(&format!("main<=ExporterStepDone({})", step));
-                    self.exporter_progress =
-                        (step + 1) as f32 / self.gen_panel.enabled_steps() as f32;
-                    self.exporter_cur_step = step + 1;
-                    if step + 1 == self.gen_panel.steps.len() {
-                        self.exporter_text = "Saving png...".to_owned();
-                    } else {
-                        self.exporter_text = format!(
-                            "{}% {}/{} {}",
-                            (self.exporter_progress * 100.0) as usize,
-                            step + 1,
-                            self.gen_panel.steps.len(),
-                            self.gen_panel.steps[self.exporter_cur_step]
-                        );
-                    }
-                }
-                Ok(ThreadMessage::ExporterDone(res)) => {
-                    if let Err(msg) = res {
-                        let err_msg = format!("Error while exporting heightmap : {}", msg);
-                        println!("{}", err_msg);
-                        self.err_msg = Some(err_msg);
-                    }
-                    log("main<=ExporterDone");
-                    self.enabled = true;
-                    self.exporter_progress = 1.0;
-                    self.export_panel.enabled = true;
-                    self.exporter_cur_step = 0;
-                    self.exporter_text = String::new();
-                }
-                Err(_) => {
-                    break;
-                }
             }
+            Ok(ThreadMessage::ExporterDone(res)) => {
+                if let Err(msg) = res {
+                    let err_msg = format!("Error while exporting heightmap : {}", msg);
+                    println!("{}", err_msg);
+                    self.err_msg = Some(err_msg);
+                }
+                log("main<=ExporterDone");
+                self.enabled = true;
+                self.exporter_progress = 1.0;
+                self.export_panel.enabled = true;
+                self.exporter_cur_step = 0;
+                self.exporter_text = String::new();
+            }
+            Err(_) => {}
         }
         self.render_left_panel(ctx);
         self.render_central_panel(ctx);

@@ -96,10 +96,10 @@ impl Panel2dView {
         let old_size = self.preview_size;
         self.fps_counter.new_frame();
         if self.mask_mode {
-            action = self.mask_editor.render(ui);
+            action = self.mask_editor.render(ui, &self.img);
         } else {
             ui.vertical(|ui| {
-                if let Some(img) = &self.ui_img {
+                if let Some(ref img) = self.ui_img {
                     img.show(ui);
                 }
                 ui.horizontal(|ui| {

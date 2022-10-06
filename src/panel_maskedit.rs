@@ -4,10 +4,10 @@ use eframe::{
     egui::{self, PointerButton},
     emath,
 };
-use epaint::{Pos2, Rect};
+use epaint::{Color32, ColorImage, Pos2, Rect};
 use three_d::{
-    core::Color, vec3, Blend, Camera, ColorMaterial, CpuMaterial, CpuMesh, Cull, DepthTest,
-    Indices, Mat4, Model, Object, Positions, Viewport,
+    core::Color, vec3, Blend, Camera, ColorMaterial, CpuMaterial, CpuMesh, CpuTexture, Cull,
+    DepthTest, Indices, Mat4, Model, Object, Positions, TextureData, Viewport,
 };
 
 use crate::{panel_2dview::Panel2dAction, MASK_SIZE};
@@ -35,12 +35,16 @@ pub struct PanelMaskEdit {
     conf: BrushConfig,
     /// should the mesh used to render the mask be updated to reflect changes in mask ?
     mesh_updated: bool,
+    /// are we rendering a new mask for the first time ?
+    new_mask: bool,
     /// should the mesh used to render the brush be updated to reflect a change in brush falloff ?
     brush_updated: bool,
     /// are we currently modifying the mask (cursor is in canvas and one mouse button is pressed)
     is_painting: bool,
     /// used to compute the brush impact on the mask depending on elapsed time
     prev_frame_time: f64,
+    /// how transparent we want the heightmap to appear on top of the mask
+    pub heightmap_transparency: f32,
 }
 
 impl PanelMaskEdit {
@@ -55,9 +59,11 @@ impl PanelMaskEdit {
                 opacity: 0.5,
             },
             mesh_updated: false,
+            new_mask: true,
             is_painting: false,
             brush_updated: false,
             prev_frame_time: -1.0,
+            heightmap_transparency: 0.5,
         }
     }
     pub fn get_mask(&self) -> Option<Vec<f32>> {
@@ -66,13 +72,18 @@ impl PanelMaskEdit {
     pub fn display_mask(&mut self, image_size: usize, mask: Option<Vec<f32>>) {
         self.image_size = image_size;
         self.mesh_updated = true;
+        self.new_mask = true;
         self.mask = mask.or_else(|| Some(vec![1.0; MASK_SIZE * MASK_SIZE]));
     }
-    pub fn render(&mut self, ui: &mut egui::Ui) -> Option<Panel2dAction> {
+    pub fn render(
+        &mut self,
+        ui: &mut egui::Ui,
+        heightmap_img: &ColorImage,
+    ) -> Option<Panel2dAction> {
         let mut action = None;
         ui.vertical(|ui| {
             egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
-                self.render_3dview(ui);
+                self.render_3dview(ui, heightmap_img, self.image_size as u32);
             });
             if self.is_painting {
                 action = Some(Panel2dAction::MaskUpdated);
@@ -111,22 +122,28 @@ impl PanelMaskEdit {
                 self.brush_updated = old_falloff != self.conf.falloff;
             });
             ui.horizontal(|ui| {
-                if ui
-                    .button("Clear")
-                    .on_hover_text("Delete this mask")
-                    .clicked()
-                {
-                    action = Some(Panel2dAction::MaskDelete);
-                    if let Some(ref mut mask) = self.mask {
-                        mask.fill(1.0);
-                        self.mesh_updated = true;
-                    }
-                }
+                ui.label("heightmap opacity");
+                ui.add(
+                    egui::DragValue::new(&mut self.heightmap_transparency)
+                        .speed(0.01)
+                        .clamp_range(0.0..=1.0),
+                );
             });
+            if ui
+                .button("Clear mask")
+                .on_hover_text("Delete this mask")
+                .clicked()
+            {
+                action = Some(Panel2dAction::MaskDelete);
+                if let Some(ref mut mask) = self.mask {
+                    mask.fill(1.0);
+                    self.mesh_updated = true;
+                }
+            }
         });
         action
     }
-    fn render_3dview(&mut self, ui: &mut egui::Ui) {
+    fn render_3dview(&mut self, ui: &mut egui::Ui, heightmap_img: &ColorImage, image_size: u32) {
         let (rect, response) = ui.allocate_exact_size(
             egui::Vec2::splat(self.image_size as f32),
             egui::Sense::drag(),
@@ -141,6 +158,13 @@ impl PanelMaskEdit {
         );
         let from_screen = to_screen.inverse();
         let mut mesh_updated = self.mesh_updated;
+        let new_mask = self.new_mask;
+        let hmap_transp = self.heightmap_transparency;
+        let heightmap_img = if new_mask {
+            Some(heightmap_img.clone())
+        } else {
+            None
+        };
         let brush_updated = self.brush_updated;
         let brush_config = self.conf;
         let time = if self.prev_frame_time == -1.0 {
@@ -171,18 +195,24 @@ impl PanelMaskEdit {
             rect,
             callback: std::sync::Arc::new(egui_glow::CallbackFn::new(move |info, painter| {
                 with_three_d_context(painter.gl(), |three_d, renderer| {
+                    if new_mask {
+                        if let Some(ref heightmap_img) = heightmap_img {
+                            renderer.set_heightmap(three_d, heightmap_img, image_size);
+                        }
+                    }
                     if brush_updated {
                         renderer.update_brush(three_d, brush_config);
                     }
                     if mesh_updated {
                         renderer.update_model(three_d, &mask);
                     }
-                    renderer.render(three_d, &info, mouse_pos, brush_config);
+                    renderer.render(three_d, &info, mouse_pos, brush_config, hmap_transp);
                 });
             })),
         };
         ui.painter().add(callback);
         self.mesh_updated = false;
+        self.new_mask = false;
     }
 
     fn update_mask(
@@ -275,6 +305,7 @@ pub struct Renderer {
     mask_model: Model<ColorMaterial>,
     brush_mesh: CpuMesh,
     brush_model: Model<ColorMaterial>,
+    heightmap_model: Model<ColorMaterial>,
     mask_mesh: CpuMesh,
     material: ColorMaterial,
 }
@@ -298,11 +329,14 @@ impl Renderer {
         let mask_model = Model::new_with_material(three_d, &mask_mesh, material.clone()).unwrap();
         let brush_mesh = build_brush(0.5);
         let brush_model = Model::new_with_material(three_d, &brush_mesh, material.clone()).unwrap();
+        let heightmap_model =
+            Model::new_with_material(three_d, &CpuMesh::square(), material.clone()).unwrap();
         Self {
             mask_model,
             brush_mesh,
             brush_model,
             mask_mesh,
+            heightmap_model,
             material,
         }
     }
@@ -343,6 +377,7 @@ impl Renderer {
         info: &egui::PaintCallbackInfo,
         mouse_pos: Option<Pos2>,
         brush_conf: BrushConfig,
+        hmap_transp: f32,
     ) {
         // Set where to paint
         let viewport = info.viewport_in_pixels();
@@ -379,6 +414,19 @@ impl Renderer {
             self.brush_model.set_transformation(transfo * scale);
             self.brush_model.render(&camera, &[]).unwrap();
         }
+        let transfo = Mat4::from_scale(5.0);
+        self.heightmap_model.set_transformation(transfo);
+        self.heightmap_model.material.color.a = (hmap_transp * 255.0) as u8;
+        self.heightmap_model.render(&camera, &[]).unwrap();
+    }
+
+    fn set_heightmap(
+        &mut self,
+        three_d: &three_d::Context,
+        heightmap_img: &ColorImage,
+        image_size: u32,
+    ) {
+        self.heightmap_model = build_heightmap(three_d, heightmap_img, image_size);
     }
 }
 
@@ -465,4 +513,35 @@ fn build_mask() -> CpuMesh {
         colors: Some(colors),
         ..Default::default()
     }
+}
+
+/// build a simple textured square to display the heightmap
+fn build_heightmap(
+    three_d: &three_d::Context,
+    heightmap_img: &ColorImage,
+    image_size: u32,
+) -> Model<ColorMaterial> {
+    let mesh = CpuMesh::square();
+    let mut material = ColorMaterial::new(
+        three_d,
+        &CpuMaterial {
+            roughness: 1.0,
+            metallic: 0.0,
+            albedo: Color::new(255, 255, 255, 128),
+            albedo_texture: Some(CpuTexture {
+                width: image_size,
+                height: image_size,
+                data: TextureData::RgbaU8(
+                    heightmap_img.pixels.iter().map(Color32::to_array).collect(),
+                ),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    material.render_states.cull = Cull::None;
+    material.render_states.depth_test = DepthTest::Always;
+    material.render_states.blend = Blend::TRANSPARENCY;
+    Model::new_with_material(three_d, &mesh, material).unwrap()
 }

@@ -1,12 +1,9 @@
-use std::{rc::Rc, sync::Arc};
-
 use eframe::egui::{self, PointerButton};
 use image::EncodableLayout;
 use three_d::{
-    degrees, radians, rotation_matrix_from_dir_to_dir, vec2, vec3, AmbientLight, Camera, Color,
-    ColorMaterial, CpuMaterial, CpuMesh, CpuTexture, Cull, DirectionalLight, Gm, Indices,
-    InnerSpace, Instance, InstancedMesh, InstancedModel, Mat3, Mat4, Model, Object,
-    PhysicalMaterial, Positions, TextureData, Vec3, Viewport,
+    degrees, radians, vec2, vec3, AmbientLight, Camera, ClearState, Color, CpuMaterial, CpuMesh,
+    CpuTexture, Cull, DirectionalLight, Gm, Indices, InnerSpace, Mat3, Mat4, Mesh,
+    PhysicalMaterial, Positions, TextureData, Vec3,
 };
 
 use crate::worldgen::ExportMap;
@@ -39,8 +36,6 @@ pub struct Panel3dViewConf {
     pub water_level: f32,
     /// do we display the water plane ?
     pub show_water: bool,
-    /// do we display the grid ?
-    pub show_grid: bool,
     /// do we display the skybox ?
     pub show_skybox: bool,
 }
@@ -63,7 +58,6 @@ impl Default for Panel3dView {
                 hscale: 100.0,
                 water_level: 40.0,
                 show_water: true,
-                show_grid: false,
                 show_skybox: true,
             },
             mesh_data: Default::default(),
@@ -111,8 +105,6 @@ impl Panel3dView {
                     self.update_water_level(false, old_water_level);
                     self.update_water_level(true, self.conf.water_level);
                 }
-                ui.label("Show grid");
-                ui.checkbox(&mut self.conf.show_grid, "");
                 ui.label("Show skybox");
                 ui.checkbox(&mut self.conf.show_skybox, "");
             });
@@ -220,12 +212,85 @@ impl Panel3dView {
                     if mesh_updated {
                         renderer.update_model(three_d, &mesh_data);
                     }
-                    renderer.render(three_d, &info, conf);
+                    renderer.render(
+                        three_d,
+                        &info,
+                        conf,
+                        FrameInput::new(&three_d, &info, painter),
+                    );
                 });
             })),
         };
         ui.painter().add(callback);
         self.mesh_updated = false;
+    }
+}
+///
+/// Translates from egui input to three-d input
+///
+pub struct FrameInput<'a> {
+    screen: three_d::RenderTarget<'a>,
+    viewport: three_d::Viewport,
+    scissor_box: three_d::ScissorBox,
+}
+
+impl FrameInput<'_> {
+    pub fn new(
+        context: &three_d::Context,
+        info: &egui::PaintCallbackInfo,
+        painter: &egui_glow::Painter,
+    ) -> Self {
+        use three_d::*;
+
+        // Disable sRGB textures for three-d
+        #[cfg(not(target_arch = "wasm32"))]
+        #[allow(unsafe_code)]
+        unsafe {
+            use glow::HasContext as _;
+            context.disable(glow::FRAMEBUFFER_SRGB);
+        }
+
+        // Constructs a screen render target to render the final image to
+        let screen = painter.intermediate_fbo().map_or_else(
+            || {
+                RenderTarget::screen(
+                    context,
+                    info.viewport.width() as u32,
+                    info.viewport.height() as u32,
+                )
+            },
+            |fbo| {
+                RenderTarget::from_framebuffer(
+                    context,
+                    info.viewport.width() as u32,
+                    info.viewport.height() as u32,
+                    fbo,
+                )
+            },
+        );
+
+        // Set where to paint
+        let viewport = info.viewport_in_pixels();
+        let viewport = Viewport {
+            x: viewport.left_px.round() as _,
+            y: viewport.from_bottom_px.round() as _,
+            width: viewport.width_px.round() as _,
+            height: viewport.height_px.round() as _,
+        };
+
+        // Respect the egui clip region (e.g. if we are inside an `egui::ScrollArea`).
+        let clip_rect = info.clip_rect_in_pixels();
+        let scissor_box = ScissorBox {
+            x: clip_rect.left_px.round() as _,
+            y: clip_rect.from_bottom_px.round() as _,
+            width: clip_rect.width_px.round() as _,
+            height: clip_rect.height_px.round() as _,
+        };
+        Self {
+            screen,
+            scissor_box,
+            viewport,
+        }
     }
 }
 
@@ -250,9 +315,8 @@ fn with_three_d_context<R>(
     }
     THREE_D.with(|context| {
         let mut context = context.borrow_mut();
-        let (three_d, renderer) = context.get_or_insert_with(|| unsafe {
-            let three_d =
-                three_d::Context::from_gl_context(Rc::from_raw(Arc::into_raw(gl.clone()))).unwrap();
+        let (three_d, renderer) = context.get_or_insert_with(|| {
+            let three_d = three_d::Context::from_gl_context(gl.clone()).unwrap();
             let renderer = Renderer::new(&three_d);
             (three_d, renderer)
         });
@@ -262,13 +326,12 @@ fn with_three_d_context<R>(
 }
 pub struct Renderer {
     terrain_mesh: CpuMesh,
-    terrain_model: Model<PhysicalMaterial>,
+    terrain_model: Gm<Mesh, PhysicalMaterial>,
     terrain_material: PhysicalMaterial,
-    water_model: Model<PhysicalMaterial>,
+    water_model: Gm<Mesh, PhysicalMaterial>,
     directional: DirectionalLight,
     ambient: AmbientLight,
-    sky: Model<PhysicalMaterial>,
-    wireframe: Option<Gm<InstancedMesh, ColorMaterial>>,
+    sky: Gm<Mesh, PhysicalMaterial>,
 }
 
 impl Renderer {
@@ -282,27 +345,23 @@ impl Renderer {
                 albedo: Color::new_opaque(45, 30, 25),
                 ..Default::default()
             },
-        )
-        .unwrap();
+        );
         terrain_material.render_states.cull = Cull::Back;
-        let terrain_model =
-            Model::new_with_material(three_d, &terrain_mesh, terrain_material.clone()).unwrap();
+        let terrain_model = Gm::new(Mesh::new(three_d, &terrain_mesh), terrain_material.clone());
         let water_model = build_water_plane(three_d);
         Self {
             terrain_mesh,
             terrain_model,
             terrain_material,
             water_model,
-            wireframe: None,
             sky: build_sky(three_d),
             directional: DirectionalLight::new(
                 three_d,
                 1.5,
                 Color::new_opaque(255, 222, 180),
                 &vec3(-0.5, 0.5, -0.5).normalize(),
-            )
-            .unwrap(),
-            ambient: AmbientLight::new(three_d, 0.5, Color::WHITE).unwrap(),
+            ),
+            ambient: AmbientLight::new(&three_d, 0.5, Color::WHITE),
         }
     }
     pub fn update_model(&mut self, three_d: &three_d::Context, mesh_data: &Option<MeshData>) {
@@ -318,35 +377,26 @@ impl Renderer {
                 self.terrain_mesh.uvs = Some(mesh_data.uv.clone());
                 self.terrain_mesh.tangents = None;
             }
-            self.wireframe = Some(build_wireframe(three_d, mesh_data, 16));
-            self.terrain_model = Model::new_with_material(
-                three_d,
-                &self.terrain_mesh,
+            self.terrain_model = Gm::new(
+                Mesh::new(three_d, &self.terrain_mesh),
                 self.terrain_material.clone(),
-            )
-            .unwrap();
+            );
         }
     }
     pub fn render(
         &mut self,
-        three_d: &three_d::Context,
-        info: &egui::PaintCallbackInfo,
+        _three_d: &three_d::Context,
+        _info: &egui::PaintCallbackInfo,
         conf: Panel3dViewConf,
+        frame_input: FrameInput<'_>,
     ) {
         // Set where to paint
-        let viewport = info.viewport_in_pixels();
-        let viewport = Viewport {
-            x: viewport.left_px.round() as _,
-            y: viewport.from_bottom_px.round() as _,
-            width: viewport.width_px.round() as _,
-            height: viewport.height_px.round() as _,
-        };
+        let viewport = frame_input.viewport;
 
         let target = vec3(0.0, 0.0, 0.0);
         let campos = vec3(XY_SCALE * 2.0, 0.0, 0.0);
 
         let mut camera = Camera::new_perspective(
-            three_d,
             viewport,
             campos,
             target,
@@ -354,21 +404,14 @@ impl Renderer {
             degrees((90.0 - conf.zoom * 0.8).clamp(1.0, 90.0)),
             0.1,
             XY_SCALE * 10.0,
-        )
-        .unwrap();
+        );
 
-        camera
-            .rotate_around_with_fixed_up(&target, 0.0, conf.orbit[1] * XY_SCALE * 2.0)
-            .unwrap();
+        camera.rotate_around_with_fixed_up(&target, 0.0, conf.orbit[1] * XY_SCALE * 2.0);
 
-        camera
-            .translate(&(conf.pan[1] * camera.up() - conf.pan[0] * camera.right_direction()))
-            .unwrap();
+        camera.translate(&(conf.pan[1] * camera.up() - conf.pan[0] * camera.right_direction()));
         let camz = camera.position().z;
         if camz < conf.water_level + 10.0 {
-            camera
-                .translate(&vec3(0.0, 0.0, conf.water_level + 10.0 - camz))
-                .unwrap();
+            camera.translate(&vec3(0.0, 0.0, conf.water_level + 10.0 - camz));
         }
 
         let mut transfo = Mat4::from_angle_z(radians(conf.orbit[0] * 2.0));
@@ -378,115 +421,50 @@ impl Renderer {
         let light_transfo = Mat3::from_angle_z(radians(conf.orbit[0] * 2.0));
         self.directional.direction = light_transfo * vec3(-0.5, 0.5, -0.5);
         self.directional
-            .generate_shadow_map(1024, &[&self.terrain_model])
-            .unwrap();
-        self.terrain_model
-            .render(&camera, &[&self.ambient, &self.directional])
-            .unwrap();
+            .generate_shadow_map(1024, &[&self.terrain_model]);
+        // Get the screen render target to be able to render something on the screen
+        frame_input
+            .screen
+            // Clear the color and depth of the screen render target
+            .clear_partially(frame_input.scissor_box, ClearState::depth(1.0));
+        frame_input.screen.render_partially(
+            frame_input.scissor_box,
+            &camera,
+            &[&self.terrain_model],
+            &[&self.ambient, &self.directional],
+        );
 
-        if conf.show_grid {
-            if let Some(ref mut wireframe) = self.wireframe {
-                wireframe.set_transformation(transfo);
-                wireframe
-                    .render(&camera, &[&self.ambient, &self.directional])
-                    .unwrap();
-            }
-        }
         if conf.show_water {
             let mut water_transfo = Mat4::from_translation(Vec3::new(0.0, 0.0, conf.water_level));
             water_transfo.x[0] = XY_SCALE * 10.0;
             water_transfo.y[1] = XY_SCALE * 10.0;
-            self.water_model.set_transformation(transfo * water_transfo);
+            self.water_model.set_transformation(water_transfo);
 
-            self.water_model
-                .render(&camera, &[&self.ambient, &self.directional])
-                .unwrap();
+            frame_input.screen.render_partially(
+                frame_input.scissor_box,
+                &camera,
+                &[&self.water_model],
+                &[&self.ambient, &self.directional],
+            );
         }
         if conf.show_skybox {
             let transfo = Mat4::from_angle_z(radians(conf.orbit[0] * 2.0));
             self.sky.set_transformation(transfo);
-            self.sky.render(&camera, &[]).unwrap();
+            frame_input.screen.render_partially(
+                frame_input.scissor_box,
+                &camera,
+                &[&self.sky],
+                &[],
+            );
         }
-    }
-}
 
-fn build_wireframe(
-    three_d: &three_d::Context,
-    mesh_data: &MeshData,
-    grid_size: usize,
-) -> Gm<InstancedMesh, ColorMaterial> {
-    let mut wireframe_material = ColorMaterial::new(
-        three_d,
-        &CpuMaterial {
-            albedo: Color::new_opaque(220, 50, 50),
-            roughness: 0.7,
-            metallic: 0.8,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    wireframe_material.render_states.cull = Cull::Back;
-    let mut cylinder = CpuMesh::cylinder(10);
-    cylinder
-        .transform(&Mat4::from_nonuniform_scale(1.0, 0.1, 0.1))
-        .unwrap();
-    let edges = InstancedModel::new_with_material(
-        three_d,
-        &edge_transformations(grid_size, mesh_data),
-        &cylinder,
-        wireframe_material,
-    )
-    .unwrap();
-    edges
-}
-fn edge_transformations(grid_size: usize, mesh_data: &MeshData) -> Vec<Instance> {
-    let mut edge_transformations = std::collections::HashMap::new();
-    let mut real_size_x = mesh_data.size.0;
-    while real_size_x > grid_size {
-        real_size_x /= 2;
+        frame_input.screen.into_framebuffer(); // Take back the screen fbo, we will continue to use it.
     }
-    real_size_x = mesh_data.size.0 / real_size_x;
-    let mut real_size_y = mesh_data.size.1;
-    while real_size_y > grid_size {
-        real_size_y /= 2;
-    }
-    real_size_y = mesh_data.size.1 / real_size_y;
-    for lx in (0..mesh_data.size.0).step_by(real_size_x) {
-        let mut p1 = mesh_data.vertices[lx];
-        for ly in 1..mesh_data.size.1 {
-            let p2 = mesh_data.vertices[lx + ly * mesh_data.size.0];
-            let scale = Mat4::from_nonuniform_scale((p1 - p2).magnitude(), 1.0, 1.0);
-            let rotation =
-                rotation_matrix_from_dir_to_dir(vec3(1.0, 0.0, 0.0), (p2 - p1).normalize());
-            let translation = Mat4::from_translation(p1);
-            edge_transformations.insert((lx, ly), translation * rotation * scale);
-            p1 = p2;
-        }
-    }
-    for ly in (0..mesh_data.size.1).step_by(real_size_y) {
-        let mut p1 = mesh_data.vertices[ly * mesh_data.size.0];
-        for lx in 1..mesh_data.size.0 {
-            let p2 = mesh_data.vertices[lx + ly * mesh_data.size.0];
-            let scale = Mat4::from_nonuniform_scale((p1 - p2).magnitude(), 1.0, 1.0);
-            let rotation =
-                rotation_matrix_from_dir_to_dir(vec3(1.0, 0.0, 0.0), (p2 - p1).normalize());
-            let translation = Mat4::from_translation(p1);
-            edge_transformations.insert((lx, ly), translation * rotation * scale);
-            p1 = p2;
-        }
-    }
-    edge_transformations
-        .drain()
-        .map(|(_, v)| Instance {
-            geometry_transform: v,
-            ..Default::default()
-        })
-        .collect::<Vec<_>>()
 }
 
 const SKY_BYTES: &[u8] = include_bytes!("../sky.jpg");
 
-fn build_sky(three_d: &three_d::Context) -> Model<PhysicalMaterial> {
+fn build_sky(three_d: &three_d::Context) -> Gm<Mesh, PhysicalMaterial> {
     let img = image::load_from_memory(SKY_BYTES).unwrap();
     let buffer = img.as_rgb8().unwrap().as_bytes();
     let mut data = Vec::new();
@@ -508,16 +486,6 @@ fn build_sky(three_d: &three_d::Context) -> Model<PhysicalMaterial> {
     .unwrap();
     sky2.transform(&Mat4::from_angle_y(degrees(-90.0))).unwrap();
     sky2.transform(&Mat4::from_angle_z(degrees(90.0))).unwrap();
-    let mut uvs = Vec::new();
-    for i in 0..SUBDIV + 1 {
-        let u = i as f32 / SUBDIV as f32;
-        uvs.push(vec2(u, 1.0));
-    }
-    for i in 0..SUBDIV + 1 {
-        let u = i as f32 / SUBDIV as f32;
-        uvs.push(vec2(u, 0.0));
-    }
-    sky2.uvs = Some(uvs);
     let mut sky_material = PhysicalMaterial::new_opaque(
         three_d,
         &CpuMaterial {
@@ -532,13 +500,12 @@ fn build_sky(three_d: &three_d::Context) -> Model<PhysicalMaterial> {
             }),
             ..Default::default()
         },
-    )
-    .unwrap();
+    );
     // water_material.render_states.depth_test = DepthTest::Greater;
     sky_material.render_states.cull = Cull::Front;
-    Model::new_with_material(three_d, &sky2, sky_material).unwrap()
+    Gm::new(Mesh::new(three_d, &sky2), sky_material)
 }
-fn build_water_plane(three_d: &three_d::Context) -> Model<PhysicalMaterial> {
+fn build_water_plane(three_d: &three_d::Context) -> Gm<Mesh, PhysicalMaterial> {
     let water_mesh = CpuMesh::square();
 
     let mut water_material = PhysicalMaterial::new_opaque(
@@ -549,11 +516,10 @@ fn build_water_plane(three_d: &three_d::Context) -> Model<PhysicalMaterial> {
             albedo: Color::new_opaque(50, 60, 150),
             ..Default::default()
         },
-    )
-    .unwrap();
+    );
     // water_material.render_states.depth_test = DepthTest::Greater;
     water_material.render_states.cull = Cull::Back;
-    Model::new_with_material(three_d, &water_mesh, water_material).unwrap()
+    Gm::new(Mesh::new(three_d, &water_mesh), water_material)
 }
 fn uv_wrapping_cylinder(angle_subdivisions: u32) -> CpuMesh {
     let length_subdivisions = 1;
@@ -578,10 +544,20 @@ fn uv_wrapping_cylinder(angle_subdivisions: u32) -> CpuMesh {
             indices.push(((i + 1) * (angle_subdivisions + 1) + j) as u16);
         }
     }
+    let mut uvs = Vec::new();
+    for i in 0..angle_subdivisions + 1 {
+        let u = i as f32 / angle_subdivisions as f32;
+        uvs.push(vec2(u, 1.0));
+    }
+    for i in 0..angle_subdivisions + 1 {
+        let u = i as f32 / angle_subdivisions as f32;
+        uvs.push(vec2(u, 0.0));
+    }
     let mut mesh = CpuMesh {
         name: "cylinder".to_string(),
         positions: Positions::F32(positions),
         indices: Some(Indices::U16(indices)),
+        uvs: Some(uvs),
         ..Default::default()
     };
     mesh.compute_normals();

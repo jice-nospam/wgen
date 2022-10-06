@@ -52,6 +52,7 @@ fn main() {
         maximized: true,
         multisampling: 8,
         depth_buffer: 24,
+        renderer: eframe::Renderer::Glow,
         vsync: true,
         ..Default::default()
     };

@@ -1,5 +1,3 @@
-use std::{rc::Rc, sync::Arc};
-
 use eframe::{
     egui::{self, PointerButton},
     emath,
@@ -7,7 +5,7 @@ use eframe::{
 use epaint::{Color32, ColorImage, Pos2, Rect};
 use three_d::{
     core::Color, vec3, Blend, Camera, ColorMaterial, CpuMaterial, CpuMesh, CpuTexture, Cull,
-    DepthTest, Indices, Mat4, Model, Object, Positions, TextureData, Viewport,
+    DepthTest, Gm, Indices, Mat4, Mesh, Object, Positions, TextureData, Viewport,
 };
 
 use crate::{panel_2dview::Panel2dAction, MASK_SIZE};
@@ -291,9 +289,8 @@ fn with_three_d_context<R>(
     }
     THREE_D.with(|context| {
         let mut context = context.borrow_mut();
-        let (three_d, renderer) = context.get_or_insert_with(|| unsafe {
-            let three_d =
-                three_d::Context::from_gl_context(Rc::from_raw(Arc::into_raw(gl.clone()))).unwrap();
+        let (three_d, renderer) = context.get_or_insert_with(|| {
+            let three_d = three_d::Context::from_gl_context(gl.clone()).unwrap();
             let renderer = Renderer::new(&three_d);
             (three_d, renderer)
         });
@@ -302,10 +299,10 @@ fn with_three_d_context<R>(
     })
 }
 pub struct Renderer {
-    mask_model: Model<ColorMaterial>,
+    mask_model: Gm<Mesh, ColorMaterial>,
     brush_mesh: CpuMesh,
-    brush_model: Model<ColorMaterial>,
-    heightmap_model: Model<ColorMaterial>,
+    brush_model: Gm<Mesh, ColorMaterial>,
+    heightmap_model: Gm<Mesh, ColorMaterial>,
     mask_mesh: CpuMesh,
     material: ColorMaterial,
 }
@@ -320,17 +317,15 @@ impl Renderer {
                 albedo: Color::WHITE,
                 ..Default::default()
             },
-        )
-        .unwrap();
+        );
         material.render_states.cull = Cull::None;
         material.render_states.depth_test = DepthTest::Always;
         material.render_states.blend = Blend::TRANSPARENCY;
         let mask_mesh = build_mask();
-        let mask_model = Model::new_with_material(three_d, &mask_mesh, material.clone()).unwrap();
+        let mask_model = Gm::new(Mesh::new(three_d, &mask_mesh), material.clone());
         let brush_mesh = build_brush(0.5);
-        let brush_model = Model::new_with_material(three_d, &brush_mesh, material.clone()).unwrap();
-        let heightmap_model =
-            Model::new_with_material(three_d, &CpuMesh::square(), material.clone()).unwrap();
+        let brush_model = Gm::new(Mesh::new(three_d, &brush_mesh), material.clone());
+        let heightmap_model = Gm::new(Mesh::new(three_d, &CpuMesh::square()), material.clone());
         Self {
             mask_model,
             brush_mesh,
@@ -349,8 +344,7 @@ impl Renderer {
                 vertices[i + 1] = vec3(angle.cos() * inv_fall, angle.sin() * inv_fall, 0.0);
             }
         }
-        self.brush_model =
-            Model::new_with_material(three_d, &self.brush_mesh, self.material.clone()).unwrap();
+        self.brush_model = Gm::new(Mesh::new(three_d, &self.brush_mesh), self.material.clone());
     }
     pub fn update_model(&mut self, three_d: &three_d::Context, mask: &Option<Vec<f32>>) {
         if let Some(mask) = mask {
@@ -367,13 +361,12 @@ impl Renderer {
                     }
                 }
             }
-            self.mask_model =
-                Model::new_with_material(three_d, &self.mask_mesh, self.material.clone()).unwrap();
+            self.mask_model = Gm::new(Mesh::new(three_d, &self.mask_mesh), self.material.clone());
         }
     }
     pub fn render(
         &mut self,
-        three_d: &three_d::Context,
+        _three_d: &three_d::Context,
         info: &egui::PaintCallbackInfo,
         mouse_pos: Option<Pos2>,
         brush_conf: BrushConfig,
@@ -392,7 +385,6 @@ impl Renderer {
         let campos = vec3(0.0, 0.0, 1.0);
 
         let camera = Camera::new_orthographic(
-            three_d,
             viewport,
             campos,
             target,
@@ -400,10 +392,9 @@ impl Renderer {
             10.0,
             0.0,
             1000.0,
-        )
-        .unwrap();
+        );
 
-        self.mask_model.render(&camera, &[]).unwrap();
+        self.mask_model.render(&camera, &[]);
         if let Some(mouse_pos) = mouse_pos {
             let transfo = Mat4::from_translation(vec3(
                 mouse_pos.x * 10.0 - 5.0,
@@ -412,12 +403,12 @@ impl Renderer {
             ));
             let scale = Mat4::from_scale(brush_conf.size * 10.0 * MAX_BRUSH_SIZE);
             self.brush_model.set_transformation(transfo * scale);
-            self.brush_model.render(&camera, &[]).unwrap();
+            self.brush_model.render(&camera, &[]);
         }
         let transfo = Mat4::from_scale(5.0);
         self.heightmap_model.set_transformation(transfo);
         self.heightmap_model.material.color.a = (hmap_transp * 255.0) as u8;
-        self.heightmap_model.render(&camera, &[]).unwrap();
+        self.heightmap_model.render(&camera, &[]);
     }
 
     fn set_heightmap(
@@ -520,7 +511,7 @@ fn build_heightmap(
     three_d: &three_d::Context,
     heightmap_img: &ColorImage,
     image_size: u32,
-) -> Model<ColorMaterial> {
+) -> Gm<Mesh, ColorMaterial> {
     let mesh = CpuMesh::square();
     let mut material = ColorMaterial::new(
         three_d,
@@ -538,10 +529,9 @@ fn build_heightmap(
             }),
             ..Default::default()
         },
-    )
-    .unwrap();
+    );
     material.render_states.cull = Cull::None;
     material.render_states.depth_test = DepthTest::Always;
     material.render_states.blend = Blend::TRANSPARENCY;
-    Model::new_with_material(three_d, &mesh, material).unwrap()
+    Gm::new(Mesh::new(three_d, &mesh), material)
 }

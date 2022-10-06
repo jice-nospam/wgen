@@ -288,6 +288,8 @@ impl MyApp {
                     .show(ui, |ui| match self.panel_2d.render(ui) {
                         Some(Panel2dAction::ResizePreview(new_size)) => {
                             self.resize(new_size);
+                            self.mask_step = None;
+                            self.gen_panel.mask_selected = false;
                         }
                         Some(Panel2dAction::MaskUpdated) => {
                             self.last_mask_updated = ui.input().time;

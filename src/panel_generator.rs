@@ -332,7 +332,8 @@ impl PanelGenerator {
             } => (),
         }
         if ui.button("Refresh").clicked() {
-            action = Some(GeneratorAction::Regen(false, self.selected_step))
+            action = Some(GeneratorAction::Regen(false, self.selected_step));
+            self.mask_selected = false;
         }
         action
     }
@@ -369,6 +370,7 @@ impl PanelGenerator {
                 };
             }
             action = Some(GeneratorAction::Regen(true, i));
+            self.mask_selected = false;
         }
         if ui.input().pointer.any_released() {
             if let Some(i) = to_move {
@@ -381,6 +383,7 @@ impl PanelGenerator {
                     };
                     self.steps.insert(dest, step);
                     action = Some(GeneratorAction::Regen(false, i));
+                    self.mask_selected = false;
                 }
             }
         }

@@ -5,6 +5,25 @@ use eframe::egui;
 pub const TEXTEDIT_WIDTH: f32 = 240.0;
 
 #[derive(Clone)]
+pub enum ExportFileType {
+    PNG,
+    EXR,
+}
+
+impl std::fmt::Display for ExportFileType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::PNG => "png",
+                Self::EXR => "exr",
+            }
+        )
+    }
+}
+
+#[derive(Clone)]
 pub struct PanelExport {
     /// width of each image in pixels
     pub export_width: f32,
@@ -20,6 +39,8 @@ pub struct PanelExport {
     /// not needed for unreal engine which handles multi-textures heightmaps
     /// might be needed for other engines (for example godot heightmap terrain plugin)
     pub seamless: bool,
+    /// format to export, either png or exr
+    pub file_type: ExportFileType,
     /// to disable the exporter ui during export
     pub enabled: bool,
     /// program's current directory
@@ -37,6 +58,7 @@ impl Default for PanelExport {
             tiles_v: 1.0,
             file_path,
             seamless: false,
+            file_type: ExportFileType::PNG,
             enabled: true,
             cur_dir,
         }
@@ -77,6 +99,9 @@ impl PanelExport {
                         if self.file_path.ends_with(".png") {
                             self.file_path =
                                 self.file_path.strip_suffix(".png").unwrap().to_owned();
+                        } else if self.file_path.ends_with(".exr") {
+                            self.file_path =
+                                self.file_path.strip_suffix(".exr").unwrap().to_owned();
                         }
                         self.cur_dir = if path.is_file() {
                             path.parent().unwrap().to_path_buf()
@@ -91,7 +116,17 @@ impl PanelExport {
                     egui::TextEdit::singleline(&mut self.file_path)
                         .desired_width(TEXTEDIT_WIDTH - 80.0),
                 );
-                ui.label("_x*_y*.png");
+                ui.label("_x*_y*.");
+                if ui
+                    .button(&self.file_type.to_string())
+                    .on_hover_text("change the exported file format")
+                    .clicked()
+                {
+                    match self.file_type {
+                        ExportFileType::PNG => self.file_type = ExportFileType::EXR,
+                        ExportFileType::EXR => self.file_type = ExportFileType::PNG,
+                    }
+                }
             });
             ui.horizontal(|ui| {
                 ui.checkbox(&mut self.seamless, "seamless")

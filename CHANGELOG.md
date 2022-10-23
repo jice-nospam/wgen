@@ -3,6 +3,7 @@
 ## [0.3.1] - Unreleased
 ### Added
 - seamless flag on exporter for game engines not supporting multi-texture heightmaps
+- now you can export to either 16 bits PNG or 32 bits float RGB OpenExr format
 
 ### Fixed
 - changing the height scale in the 3D preview preserves the water level

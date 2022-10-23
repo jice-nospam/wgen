@@ -62,9 +62,11 @@ Here you can save the current generator configuration (all the steps with their 
 ![Save project UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_project.jpg)
 
 ## Exporter
-You can export the resulting heightmap as a single PNG file or several tiled files using this panel.
+You can export the resulting heightmap as a single image file or several tiled files using this panel.
 
 ![Export UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_export.jpg)
+
+You can click on the file extension to chose another format (16 bits PNG or EXR currently supported).
 
 File names will be generated using _x?_y? pattern, for example for 2x2 tiles :
 * ..._x0_y0.png
@@ -74,4 +76,11 @@ File names will be generated using _x?_y? pattern, for example for 2x2 tiles :
 
 If the seamless checkbox is checked, the same row of pixels will be repeated on the border of two adjacent tiles.
 This is not needed if you export to unreal engine as it natively supports multi-textures heightmaps.
-This is needed for other engines where each tile is an independant terrain object.
+This might be needed for other engines where each tile is an independant terrain object that needs to have matching border vertices with the adjacent object.
+
+# Engines guide
+## Unreal Engine 5
+Unreal natively support multi-textures heightmap. All you have to do is to choose the texture size (preferably 1024x1024 or 2048x2048 PNG) and adjust the number of tiles to match your total terrain size. The seamless flag should be unchecked as Unreal automatically joins the tile borders.
+
+## Godot 3
+As of version 3.5, Godot only support 8bits PNG so using the PNG format will result in posterization of the heightmap and a staircase effect. So the prefered format here when using the Heightmap Terrain plugin is a single square EXR file with a "power of two plus one" size (1025x1025, 2049x2049 and so on).

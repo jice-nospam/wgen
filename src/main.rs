@@ -363,7 +363,8 @@ impl MyApp {
                 self.exporter_progress = (step + 1) as f32 / self.gen_panel.enabled_steps() as f32;
                 self.exporter_cur_step = step + 1;
                 if step + 1 == self.gen_panel.steps.len() {
-                    self.exporter_text = "Saving png...".to_owned();
+                    self.exporter_text =
+                        format!("Saving {}...", self.export_panel.file_type.to_string());
                 } else {
                     self.exporter_text = format!(
                         "{}% {}/{} {}",

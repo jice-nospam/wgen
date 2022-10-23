@@ -1,7 +1,7 @@
 use std::{path::Path, sync::mpsc::Sender};
 
 use crate::{
-    panel_export::PanelExport,
+    panel_export::{ExportFileType, PanelExport},
     worldgen::{Step, WorldGenerator},
     ThreadMessage,
 };
@@ -28,7 +28,13 @@ pub fn export_heightmap(
         ),
     );
     wgen.generate(steps, tx, min_progress_step);
-    let mut buf = vec![0u8; file_width * file_height * 2];
+
+    let color_format = match export_data.file_type {
+        ExportFileType::PNG => image::ColorType::L16,
+        ExportFileType::EXR => image::ColorType::Rgb32F,
+    };
+
+    let mut buf = vec![0u8; file_width * file_height * color_format.bytes_per_pixel() as usize];
 
     let (min, max) = wgen.get_min_max();
     let coef = if max - min > std::f32::EPSILON {
@@ -36,6 +42,7 @@ pub fn export_heightmap(
     } else {
         1.0
     };
+
     for ty in 0..export_data.tiles_v as usize {
         for tx in 0..export_data.tiles_h as usize {
             let offset_x = if export_data.seamless {
@@ -52,19 +59,44 @@ pub fn export_heightmap(
                 for px in 0..file_width {
                     let mut h = wgen.combined_height(px + offset_x, py + offset_y);
                     h = (h - min) * coef;
-                    let pixel = (h * 65535.0) as u16;
-                    let offset = (px + py * file_width) * 2;
-                    buf[offset] = (pixel & 0xff) as u8;
-                    buf[offset + 1] = ((pixel & 0xff00) >> 8) as u8;
+                    let offset = (px + py * file_width) * color_format.bytes_per_pixel() as usize;
+                    match color_format {
+                        image::ColorType::L16 => {
+                            let pixel = (h * 65535.0) as u16;
+                            let upixel = pixel.to_ne_bytes();
+                            buf[offset] = upixel[0];
+                            buf[offset + 1] = upixel[1];
+                        }
+                        image::ColorType::Rgb32F => {
+                            // f32 format
+                            let pixel = h;
+                            // [u8;4] format
+                            let upixel = pixel.to_ne_bytes();
+                            // write r,g,b values
+                            for byte in 0..3 {
+                                buf[offset + byte * 4] = upixel[0];
+                                buf[offset + 1 + byte * 4] = upixel[1];
+                                buf[offset + 2 + byte * 4] = upixel[2];
+                                buf[offset + 3 + byte * 4] = upixel[3];
+                            }
+                        }
+                        _ => unreachable!(),
+                    };
                 }
             }
-            let path = format!("{}_x{}_y{}.png", export_data.file_path, tx, ty);
+            let path = format!(
+                "{}_x{}_y{}.{}",
+                export_data.file_path,
+                tx,
+                ty,
+                export_data.file_type.to_string()
+            );
             image::save_buffer(
                 &Path::new(&path),
                 &buf,
                 file_width as u32,
                 file_height as u32,
-                image::ColorType::L16,
+                color_format,
             )
             .map_err(|e| format!("Error while saving {}: {}", &path, e))?;
         }

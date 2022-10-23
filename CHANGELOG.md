@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1] - Unreleased
+### Added
+- seamless flag on exporter for game engines not supporting multi-texture heightmaps
+
+### Fixed
+- changing the height scale in the 3D preview preserves the water level
+
 ## [0.3.0] - 2022-10-06
 ### Added
 - editable masks to each step. Makes it possible to apply a step only on some part of the map

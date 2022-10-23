@@ -435,7 +435,8 @@ impl Renderer {
         );
 
         if conf.show_water {
-            let mut water_transfo = Mat4::from_translation(Vec3::new(0.0, 0.0, conf.water_level));
+            let mut water_transfo =
+                Mat4::from_translation(Vec3::new(0.0, 0.0, conf.water_level * conf.hscale * 0.01));
             water_transfo.x[0] = XY_SCALE * 10.0;
             water_transfo.y[1] = XY_SCALE * 10.0;
             self.water_model.set_transformation(water_transfo);

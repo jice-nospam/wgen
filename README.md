@@ -71,3 +71,7 @@ File names will be generated using _x?_y? pattern, for example for 2x2 tiles :
 * ..._x1_y0.png
 * ..._x0_y1.png
 * ..._x1_y1.png
+
+If the seamless checkbox is checked, the same row of pixels will be repeated on the border of two adjacent tiles.
+This is not needed if you export to unreal engine as it natively supports multi-textures heightmaps.
+This is needed for other engines where each tile is an independant terrain object.

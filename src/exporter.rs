@@ -38,8 +38,16 @@ pub fn export_heightmap(
     };
     for ty in 0..export_data.tiles_v as usize {
         for tx in 0..export_data.tiles_h as usize {
-            let offset_x = tx * file_width;
-            let offset_y = ty * file_height;
+            let offset_x = if export_data.seamless {
+                tx * (file_width - 1)
+            } else {
+                tx * file_width
+            };
+            let offset_y = if export_data.seamless {
+                ty * (file_height - 1)
+            } else {
+                ty * file_height
+            };
             for py in 0..file_height {
                 for px in 0..file_width {
                     let mut h = wgen.combined_height(px + offset_x, py + offset_y);

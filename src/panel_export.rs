@@ -16,6 +16,10 @@ pub struct PanelExport {
     pub tiles_v: f32,
     /// image filename prefix
     pub file_path: String,
+    /// should we repeat the same pixel row on two adjacent tiles ?
+    /// not needed for unreal engine which handles multi-textures heightmaps
+    /// might be needed for other engines (for example godot heightmap terrain plugin)
+    pub seamless: bool,
     /// to disable the exporter ui during export
     pub enabled: bool,
     /// program's current directory
@@ -32,6 +36,7 @@ impl Default for PanelExport {
             tiles_h: 1.0,
             tiles_v: 1.0,
             file_path,
+            seamless: false,
             enabled: true,
             cur_dir,
         }
@@ -88,7 +93,11 @@ impl PanelExport {
                 );
                 ui.label("_x*_y*.png");
             });
-            export = ui.button("Export!").clicked();
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut self.seamless, "seamless")
+                    .on_hover_text("whether pixel values are repeated on two adjacent tiles");
+                export = ui.button("Export!").clicked();
+            });
         });
         export
     }

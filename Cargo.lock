@@ -700,15 +700,15 @@ dependencies = [
 
 [[package]]
 name = "futures-core"
-version = "0.3.24"
+version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e5aa3de05362c3fb88de6531e6296e85cde7739cccad4b9dfeeb7f6ebce56bf"
+checksum = "04909a7a7e4633ae6c4a9ab280aeb86da1236243a77b694a49eacd659a4bd3ac"
 
 [[package]]
 name = "futures-sink"
-version = "0.3.24"
+version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21b20ba5a92e727ba30e72834706623d94ac93a725410b6a6b6fbc1b07f7ba56"
+checksum = "39c15cf1a4aa79df40f1bb462fb39676d0ad9e366c2a33b590d7c66f4f81fcf9"
 
 [[package]]
 name = "gdk-pixbuf-sys"
@@ -973,7 +973,6 @@ dependencies = [
  "bytemuck",
  "byteorder",
  "color_quant",
- "exr",
  "jpeg-decoder",
  "num-rational",
  "num-traits",
@@ -2416,6 +2415,7 @@ dependencies = [
  "egui_extras",
  "egui_glow",
  "epaint",
+ "exr",
  "glow",
  "image",
  "noise",

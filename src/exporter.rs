@@ -29,13 +29,6 @@ pub fn export_heightmap(
     );
     wgen.generate(steps, tx, min_progress_step);
 
-    let color_format = match export_data.file_type {
-        ExportFileType::PNG => image::ColorType::L16,
-        ExportFileType::EXR => image::ColorType::Rgb32F,
-    };
-
-    let mut buf = vec![0u8; file_width * file_height * color_format.bytes_per_pixel() as usize];
-
     let (min, max) = wgen.get_min_max();
     let coef = if max - min > std::f32::EPSILON {
         1.0 / (max - min)
@@ -55,35 +48,6 @@ pub fn export_heightmap(
             } else {
                 ty * file_height
             };
-            for py in 0..file_height {
-                for px in 0..file_width {
-                    let mut h = wgen.combined_height(px + offset_x, py + offset_y);
-                    h = (h - min) * coef;
-                    let offset = (px + py * file_width) * color_format.bytes_per_pixel() as usize;
-                    match color_format {
-                        image::ColorType::L16 => {
-                            let pixel = (h * 65535.0) as u16;
-                            let upixel = pixel.to_ne_bytes();
-                            buf[offset] = upixel[0];
-                            buf[offset + 1] = upixel[1];
-                        }
-                        image::ColorType::Rgb32F => {
-                            // f32 format
-                            let pixel = h;
-                            // [u8;4] format
-                            let upixel = pixel.to_ne_bytes();
-                            // write r,g,b values
-                            for byte in 0..3 {
-                                buf[offset + byte * 4] = upixel[0];
-                                buf[offset + 1 + byte * 4] = upixel[1];
-                                buf[offset + 2 + byte * 4] = upixel[2];
-                                buf[offset + 3 + byte * 4] = upixel[3];
-                            }
-                        }
-                        _ => unreachable!(),
-                    };
-                }
-            }
             let path = format!(
                 "{}_x{}_y{}.{}",
                 export_data.file_path,
@@ -91,15 +55,100 @@ pub fn export_heightmap(
                 ty,
                 export_data.file_type.to_string()
             );
-            image::save_buffer(
-                &Path::new(&path),
-                &buf,
-                file_width as u32,
-                file_height as u32,
-                color_format,
-            )
-            .map_err(|e| format!("Error while saving {}: {}", &path, e))?;
+            match export_data.file_type {
+                ExportFileType::PNG => write_png(
+                    file_width,
+                    file_height,
+                    offset_x,
+                    offset_y,
+                    &wgen,
+                    min,
+                    coef,
+                    &path,
+                )?,
+                ExportFileType::EXR => write_exr(
+                    file_width,
+                    file_height,
+                    offset_x,
+                    offset_y,
+                    &wgen,
+                    min,
+                    coef,
+                    &path,
+                )?,
+            }
         }
     }
     Ok(())
+}
+
+fn write_png(
+    file_width: usize,
+    file_height: usize,
+    offset_x: usize,
+    offset_y: usize,
+    wgen: &WorldGenerator,
+    min: f32,
+    coef: f32,
+    path: &str,
+) -> Result<(), String> {
+    let mut buf = vec![0u8; file_width * file_height * 2];
+    for py in 0..file_height {
+        for px in 0..file_width {
+            let mut h = wgen.combined_height(px + offset_x, py + offset_y);
+            h = (h - min) * coef;
+            let offset = (px + py * file_width) * 2;
+            let pixel = (h * 65535.0) as u16;
+            let upixel = pixel.to_ne_bytes();
+            buf[offset] = upixel[0];
+            buf[offset + 1] = upixel[1];
+        }
+    }
+    image::save_buffer(
+        &Path::new(&path),
+        &buf,
+        file_width as u32,
+        file_height as u32,
+        image::ColorType::L16,
+    )
+    .map_err(|e| format!("Error while saving {}: {}", &path, e))
+}
+
+fn write_exr(
+    file_width: usize,
+    file_height: usize,
+    offset_x: usize,
+    offset_y: usize,
+    wgen: &WorldGenerator,
+    min: f32,
+    coef: f32,
+    path: &str,
+) -> Result<(), String> {
+    use exr::prelude::*;
+
+    let channel = SpecificChannels::new(
+        (
+            ChannelDescription::named("Y", SampleType::F16),
+            // exr doesn't like single channel files right now
+            ChannelDescription::named("R", SampleType::F16),
+        ),
+        |Vec2(px, py)| {
+            let h = wgen.combined_height(px + offset_x, py + offset_y);
+            let h = f16::from_f32((h - min) * coef);
+            (h, f16::ZERO)
+        },
+    );
+
+    Image::from_encoded_channels(
+        (file_width, file_height),
+        Encoding {
+            compression: Compression::ZIP1,
+            blocks: Blocks::ScanLines,
+            line_order: LineOrder::Increasing,
+        },
+        channel,
+    )
+    .write()
+    .to_file(path)
+    .map_err(|e| format!("Error while saving {}: {}", &path, e))
 }

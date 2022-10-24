@@ -1,3 +1,4 @@
+extern crate exr;
 extern crate image;
 extern crate noise;
 extern crate rand;

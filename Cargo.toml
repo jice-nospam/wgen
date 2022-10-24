@@ -13,8 +13,8 @@ three-d = { version = "0.13", default-features = false }
 image = { version = "0.24", default-features = false, features = [
     "png",
     "jpeg",
-    "openexr",
 ] }
+exr = "1.5.2"
 rand = "0.7.3"
 noise = { version = "0.7", default-features = false }
 serde = { version = "1.0", features = ["derive"] }

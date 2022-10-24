@@ -31,7 +31,7 @@ The current version features those generators :
 - Fbm : fractal brownian motion can be used to add noise to an existing terrain or as first step to generate a continent-like terrain.
 - MidPoint : square-diamond mid-point deplacement generates a realistic looking heightmap
 - Normalize : scales the heightmap back to the range 0.0..1.0. Some generators work better with a normalized heightmap. Check your heightmap values range in the 2D preview.
-- LandMass : scale the terrain so that a defined proportion is above a defined water level. Also applies a x^3 curve above water level to have a nice plain/mountain ratio
+- LandMass : scale the terrain so that a defined proportion is above a defined water level. Also applies a x^3 curve above water level to have a nice plain/mountain ratio and can lower underwater terrain to have a crisp coast line
 - MudSlide : smoothen the terrain by simulating earth sliding along slopes
 - WaterErosion : carves rivers by simulating rain drops dragging earth along slopes
 - Island : lower the altitude along the borders of the map
@@ -83,4 +83,4 @@ This might be needed for other engines where each tile is an independant terrain
 Unreal natively support multi-textures heightmap. All you have to do is to choose the texture size (preferably 1024x1024 or 2048x2048 PNG) and adjust the number of tiles to match your total terrain size. The seamless flag should be unchecked as Unreal automatically joins the tile borders.
 
 ## Godot 3
-As of version 3.5, Godot only support 8bits PNG so using the PNG format will result in posterization of the heightmap and a staircase effect. So the prefered format here when using the Heightmap Terrain plugin is a single square EXR file with a "power of two plus one" size (1025x1025, 2049x2049 and so on). The EXR file contains values between 0.0 and 1.0 and might be very flat in Godot, so increase the y scale of your HTerrain object to something near 500.
+As of version 3.5, Godot only support 8bits PNG so using the PNG format will result in posterization of the heightmap and a staircase effect. So the prefered format here when using the Heightmap Terrain plugin is a single square EXR file with a "power of two plus one" size (1025x1025, 2049x2049 or 4097x4097). The EXR file contains values between 0.0 and 1.0 and might look completely flat in Godot, so increase the y scale of your HTerrain object to something near 500.

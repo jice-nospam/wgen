@@ -9,9 +9,14 @@ use super::{normalize, report_progress};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct LandMassConf {
+    /// what proportion of the map should be above water 0.0-1.0
     pub land_proportion: f32,
+    /// height of the water plane
     pub water_level: f32,
+    /// apply h^plain_factor above sea level for sharper mountains and flatter plains
     pub plain_factor: f32,
+    /// lower everything under water level by this value to avoid z fighting between land and water plane near shores
+    pub shore_height: f32,
 }
 
 impl Default for LandMassConf {
@@ -20,19 +25,22 @@ impl Default for LandMassConf {
             land_proportion: 0.6,
             water_level: 0.12,
             plain_factor: 2.5,
+            shore_height: 0.05,
         }
     }
 }
 
 pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
     ui.horizontal(|ui| {
-        ui.label("land proportion");
+        ui.label("land proportion")
+            .on_hover_text("what proportion of the map should be above water");
         ui.add(
             egui::DragValue::new(&mut conf.land_proportion)
                 .speed(0.01)
                 .clamp_range(0.0..=1.0),
         );
-        ui.label("water level");
+        ui.label("water level")
+            .on_hover_text("height of the water plane");
         ui.add(
             egui::DragValue::new(&mut conf.water_level)
                 .speed(0.01)
@@ -40,11 +48,19 @@ pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
         );
     });
     ui.horizontal(|ui| {
-        ui.label("plain factor");
+        ui.label("plain factor")
+            .on_hover_text("increase for sharper mountains and flatter plains");
         ui.add(
             egui::DragValue::new(&mut conf.plain_factor)
                 .speed(0.01)
                 .clamp_range(1.0..=4.0),
+        );
+        ui.label("shore height")
+            .on_hover_text("lower underwater land by this value");
+        ui.add(
+            egui::DragValue::new(&mut conf.shore_height)
+                .speed(0.01)
+                .clamp_range(0.0..=0.1),
         );
     });
 }
@@ -91,7 +107,7 @@ pub fn gen_landmass(
             if h > new_water_level {
                 h = conf.water_level + (h - new_water_level) * land_coef;
             } else {
-                h *= water_coef;
+                h = h * water_coef - conf.shore_height;
             }
             hmap[x + yoff] = h;
         }

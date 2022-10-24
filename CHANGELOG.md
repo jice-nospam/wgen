@@ -4,6 +4,7 @@
 ### Added
 - seamless flag on exporter for game engines not supporting multi-texture heightmaps
 - now you can export to either 16 bits PNG (preferred format for Unreal Engine) or 16 bits float OpenExr format (for Godot)
+- added shore height parameter to landmass generator to avoid z fighting issues between the land mesh and a water plane
 
 ### Fixed
 - changing the height scale in the 3D preview preserves the water level

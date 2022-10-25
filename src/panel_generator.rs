@@ -297,6 +297,7 @@ impl PanelGenerator {
     /// render the configuration UI for currently selected step
     fn render_curstep_conf(&mut self, ui: &mut egui::Ui) -> Option<GeneratorAction> {
         let mut action = None;
+        let mut refresh = false;
         match &mut self.steps[self.selected_step] {
             Step {
                 typ: StepType::Hills(conf),
@@ -313,7 +314,7 @@ impl PanelGenerator {
             Step {
                 typ: StepType::Fbm(conf),
                 ..
-            } => render_fbm(ui, conf),
+            } => refresh = render_fbm(ui, conf),
             Step {
                 typ: StepType::WaterErosion(conf),
                 ..
@@ -331,7 +332,7 @@ impl PanelGenerator {
                 ..
             } => (),
         }
-        if ui.button("Refresh").clicked() {
+        if refresh || ui.button("Refresh").clicked() {
             action = Some(GeneratorAction::Regen(false, self.selected_step));
             self.mask_selected = false;
         }

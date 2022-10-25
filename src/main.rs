@@ -61,7 +61,11 @@ fn main() {
         num_cpus::get(),
         num_cpus::get_physical()
     );
-    eframe::run_native("wgen", options, Box::new(|_cc| Box::new(MyApp::default())));
+    eframe::run_native(
+        "wgen",
+        options,
+        Box::new(|ctx| Box::new(MyApp::new(&ctx.gl))),
+    );
 }
 
 struct MyApp {
@@ -92,10 +96,11 @@ struct MyApp {
     /// last time the mask was updated
     last_mask_updated: f64,
     wgen: WorldGenerator,
+    gl: Option<std::sync::Arc<glow::Context>>,
 }
 
-impl Default for MyApp {
-    fn default() -> Self {
+impl MyApp {
+    fn new(gl: &Option<std::sync::Arc<glow::Context>>) -> Self {
         let preview_size = 128;
         let image_size = 790; //368;
         let seed = 0xdeadbeef;
@@ -118,6 +123,7 @@ impl Default for MyApp {
             err_msg: None,
             last_mask_updated: 0.0,
             wgen,
+            gl: gl.clone(),
         }
     }
 }
@@ -126,7 +132,7 @@ impl MyApp {
     fn export(&mut self) {
         let steps = self.gen_panel.steps.clone();
         let seed = self.seed;
-        if let Err(msg) = export_heightmap(seed, &steps, &self.export_panel) {
+        if let Err(msg) = export_heightmap(seed, &steps, &self.export_panel, &self.gl) {
             let err_msg = format!("Error while exporting heightmap : {}", msg);
             println!("{}", err_msg);
             self.err_msg = Some(err_msg);
@@ -146,7 +152,8 @@ impl MyApp {
             return;
         }
         for i in from_idx.min(len - 1)..len {
-            self.wgen.execute_step(i, &self.gen_panel.steps[i]);
+            self.wgen
+                .execute_step(i, &self.gen_panel.steps[i], &self.gl);
         }
         let hmap = self.wgen.get_export_map();
         self.panel_2d

@@ -136,7 +136,12 @@ impl WorldGenerator {
         *self = WorldGenerator::new(self.seed, self.world_size);
     }
 
-    pub fn execute_step(&mut self, index: usize, step: &Step) {
+    pub fn execute_step(
+        &mut self,
+        index: usize,
+        step: &Step,
+        gl: &Option<std::sync::Arc<glow::Context>>,
+    ) {
         let now = Instant::now();
         let len = self.hmap.len();
         if index >= len {
@@ -175,7 +180,7 @@ impl WorldGenerator {
                     ..
                 } => {
                     if !*disabled {
-                        gen_fbm(self.seed, self.world_size, &mut hmap.h, conf);
+                        gen_fbm(self.seed, self.world_size, &mut hmap.h, conf, gl);
                     }
                 }
                 Step {
@@ -250,10 +255,10 @@ impl WorldGenerator {
         ));
     }
 
-    pub fn generate(&mut self, steps: &[Step]) {
+    pub fn generate(&mut self, steps: &[Step], gl: &Option<std::sync::Arc<glow::Context>>) {
         self.clear();
         for (i, step) in steps.iter().enumerate() {
-            self.execute_step(i, step);
+            self.execute_step(i, step, gl);
         }
     }
 

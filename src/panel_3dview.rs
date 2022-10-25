@@ -216,7 +216,7 @@ impl Panel3dView {
                         three_d,
                         &info,
                         conf,
-                        FrameInput::new(&three_d, &info, painter),
+                        FrameInput::new(three_d, &info, painter),
                     );
                 });
             })),
@@ -361,7 +361,7 @@ impl Renderer {
                 Color::new_opaque(255, 222, 180),
                 &vec3(-0.5, 0.5, -0.5).normalize(),
             ),
-            ambient: AmbientLight::new(&three_d, 0.5, Color::WHITE),
+            ambient: AmbientLight::new(three_d, 0.5, Color::WHITE),
         }
     }
     pub fn update_model(&mut self, three_d: &three_d::Context, mesh_data: &Option<MeshData>) {

@@ -12,6 +12,7 @@ pub fn export_heightmap(
     steps: &[Step],
     // size and number of files to export, file name pattern
     export_data: &PanelExport,
+    gl: &Option<std::sync::Arc<glow::Context>>,
 ) -> Result<(), String> {
     let file_width = export_data.export_width as usize;
     let file_height = export_data.export_height as usize;
@@ -22,7 +23,7 @@ pub fn export_heightmap(
             (export_data.export_height * export_data.tiles_v) as usize,
         ),
     );
-    wgen.generate(steps);
+    wgen.generate(steps, gl);
 
     let (min, max) = wgen.get_min_max();
     let coef = if max - min > std::f32::EPSILON {
@@ -45,10 +46,7 @@ pub fn export_heightmap(
             };
             let path = format!(
                 "{}_x{}_y{}.{}",
-                export_data.file_path,
-                tx,
-                ty,
-                export_data.file_type.to_string()
+                export_data.file_path, tx, ty, export_data.file_type
             );
             match export_data.file_type {
                 ExportFileType::PNG => write_png(

@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.1] - Unreleased
+## [0.3.1] - 2022-10-25
 ### Added
 - seamless flag on exporter for game engines not supporting multi-texture heightmaps
 - now you can export to either 16 bits PNG (preferred format for Unreal Engine) or 16 bits float OpenExr format (for Godot)

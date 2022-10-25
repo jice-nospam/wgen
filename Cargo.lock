@@ -1887,11 +1887,13 @@ checksum = "f7a5a1017829335f6761bdbae2daf3021a88314a1f8d5f188c9b62ce62e2fd31"
 dependencies = [
  "cgmath",
  "glow",
+ "glutin",
  "instant",
  "thiserror",
  "three-d-asset",
  "wasm-bindgen",
  "web-sys",
+ "winit",
 ]
 
 [[package]]

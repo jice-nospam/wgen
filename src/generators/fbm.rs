@@ -3,6 +3,10 @@ use std::sync::mpsc::Sender;
 use eframe::egui;
 use noise::{Fbm, MultiFractal, NoiseFn, Seedable};
 use serde::{Deserialize, Serialize};
+use three_d::{
+    DepthFormat, DepthTargetTexture2D, HeadlessContext, Interpolation, RenderTarget, Texture2D,
+    TextureData, Wrapping,
+};
 
 use crate::ThreadMessage;
 
@@ -76,6 +80,33 @@ pub fn render_fbm(ui: &mut egui::Ui, conf: &mut FbmConf) {
     });
 }
 
+fn gen_fbm_gpu(
+    seed: u64,
+    size: (usize, usize),
+    hmap: &mut [f32],
+    conf: &FbmConf,
+    export: bool,
+    tx: Sender<ThreadMessage>,
+    min_progress_step: f32,
+) -> Result<(), ()> {
+    let context = HeadlessContext::new().map_err(|_| ())?;
+    let mut texture = Texture2D::new_empty::<f32>(
+        &context,
+        size.0 as u32,
+        size.1 as u32,
+        Interpolation::Nearest,
+        Interpolation::Nearest,
+        None,
+        Wrapping::ClampToEdge,
+        Wrapping::ClampToEdge,
+    );
+
+    let pixels = texture.as_color_target(None);
+    let data: Vec<f32> = pixels.read();
+    hmap.copy_from_slice(&data[..]);
+    Ok(())
+}
+
 pub fn gen_fbm(
     seed: u64,
     size: (usize, usize),
@@ -85,9 +116,24 @@ pub fn gen_fbm(
     tx: Sender<ThreadMessage>,
     min_progress_step: f32,
 ) {
+    if gen_fbm_gpu(
+        seed,
+        size,
+        hmap,
+        conf,
+        export,
+        tx.clone(),
+        min_progress_step,
+    )
+    .is_ok()
+    {
+        return;
+    }
+    // fall back to CPU generator
     let xcoef = conf.mulx / 400.0;
     let ycoef = conf.muly / 400.0;
     let mut progress = 0.0;
+
     let num_threads = num_cpus::get();
     std::thread::scope(|s| {
         let size_per_job = size.1 / num_threads;

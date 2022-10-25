@@ -181,12 +181,13 @@ pub fn generator_thread(
     let mut steps = Vec::new();
     loop {
         if steps.is_empty() {
-            // blocking wait
+            // blocking wait until next command
             if let Ok(msg) = rx.recv() {
                 let tx = tx.clone();
                 do_command(msg, &mut wgen, &mut steps, tx);
             }
         }
+        // execute all pending commands
         while let Ok(msg) = rx.try_recv() {
             let tx = tx.clone();
             do_command(msg, &mut wgen, &mut steps, tx);
@@ -199,6 +200,7 @@ pub fn generator_thread(
                 min_progress_step,
             } = steps.remove(0);
             let tx2 = tx.clone();
+            // compute next step
             wgen.execute_step(index, &step, false, tx2, min_progress_step);
             if steps.is_empty() {
                 log("wgen=>Done");

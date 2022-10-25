@@ -127,15 +127,11 @@ fn write_exr(
     use exr::prelude::*;
 
     let channel = SpecificChannels::new(
-        (
-            ChannelDescription::named("Y", SampleType::F16),
-            // exr doesn't like single channel files right now
-            ChannelDescription::named("R", SampleType::F16),
-        ),
+        (ChannelDescription::named("Y", SampleType::F16),),
         |Vec2(px, py)| {
             let h = wgen.combined_height(px + offset_x, py + offset_y);
             let h = f16::from_f32((h - min) * coef);
-            (h, f16::ZERO)
+            (h,)
         },
     );
 

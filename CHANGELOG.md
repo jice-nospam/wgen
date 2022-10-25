@@ -1,5 +1,9 @@
 # Changelog
 
+## [?] - Unreleased
+### Changed
+- exports to single channel EXR (slightly smaller files)
+
 ## [0.3.1] - 2022-10-25
 ### Added
 - seamless flag on exporter for game engines not supporting multi-texture heightmaps

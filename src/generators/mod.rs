@@ -7,8 +7,6 @@ mod mudslide;
 mod normalize;
 mod water_erosion;
 
-use std::sync::mpsc::Sender;
-
 pub use fbm::{gen_fbm, render_fbm, FbmConf};
 pub use hills::{gen_hills, render_hills, HillsConf};
 pub use island::{gen_island, render_island, IslandConf};
@@ -17,8 +15,6 @@ pub use mid_point::{gen_mid_point, render_mid_point, MidPointConf};
 pub use mudslide::{gen_mudslide, render_mudslide, MudSlideConf};
 pub use normalize::{gen_normalize, NormalizeConf};
 pub use water_erosion::{gen_water_erosion, render_water_erosion, WaterErosionConf};
-
-use crate::ThreadMessage;
 
 const DIRX: [i32; 9] = [0, -1, 0, 1, -1, 1, -1, 0, 1];
 const DIRY: [i32; 9] = [0, -1, -1, -1, 0, 0, 1, 1, 1];
@@ -107,14 +103,4 @@ pub fn _interpolate(v: &[f32], x: f32, y: f32, size: (usize, usize)) -> f32 {
     let val_n = (1.0 - dx) * val_nw + dx * val_ne;
     let val_s = (1.0 - dx) * val_sw + dx * val_se;
     (1.0 - dy) * val_n + dy * val_s
-}
-
-fn report_progress(progress: f32, export: bool, tx: Sender<ThreadMessage>) {
-    if export {
-        tx.send(ThreadMessage::ExporterStepProgress(progress))
-            .unwrap();
-    } else {
-        tx.send(ThreadMessage::GeneratorStepProgress(progress))
-            .unwrap();
-    }
 }

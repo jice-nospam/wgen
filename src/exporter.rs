@@ -1,9 +1,8 @@
-use std::{path::Path, sync::mpsc::Sender};
+use std::path::Path;
 
 use crate::{
     panel_export::{ExportFileType, PanelExport},
     worldgen::{Step, WorldGenerator},
-    ThreadMessage,
 };
 
 pub fn export_heightmap(
@@ -13,10 +12,6 @@ pub fn export_heightmap(
     steps: &[Step],
     // size and number of files to export, file name pattern
     export_data: &PanelExport,
-    // channel to send feedback messages to the main thread
-    tx: Sender<ThreadMessage>,
-    // minimum amount of progress to report (below this value, the global %age won't change)
-    min_progress_step: f32,
 ) -> Result<(), String> {
     let file_width = export_data.export_width as usize;
     let file_height = export_data.export_height as usize;
@@ -27,7 +22,7 @@ pub fn export_heightmap(
             (export_data.export_height * export_data.tiles_v) as usize,
         ),
     );
-    wgen.generate(steps, tx, min_progress_step);
+    wgen.generate(steps);
 
     let (min, max) = wgen.get_min_max();
     let coef = if max - min > std::f32::EPSILON {

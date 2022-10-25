@@ -1,12 +1,6 @@
-use std::sync::mpsc::Sender;
-
 use eframe::egui;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
-
-use crate::ThreadMessage;
-
-use super::report_progress;
 
 // water erosion algorithm adapted from https://www.firespark.de/resources/downloads/implementation%20of%20a%20methode%20for%20hydraulic%20erosion.pdf
 const MAX_PATH_LENGTH: usize = 40;
@@ -139,11 +133,7 @@ pub fn gen_water_erosion(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &WaterErosionConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
 ) {
-    let mut progress = 0.0;
     let mut rng = StdRng::seed_from_u64(seed);
     // maximum drop count is 2 per cell
     let drop_count = ((size.1 * 2) as f32 * conf.drop_amount) as usize;
@@ -158,7 +148,7 @@ pub fn gen_water_erosion(
         }
     }
     // use a double loop to check progress every size.0 drops
-    for y in 0..drop_count {
+    for _ in 0..drop_count {
         for _ in 0..size.0 {
             let mut drop = Drop {
                 pos: (
@@ -274,11 +264,6 @@ pub fn gen_water_erosion(
                 drop.water *= 1.0 - conf.evaporation;
                 count += 1;
             }
-        }
-        let new_progress = y as f32 / drop_count as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
         }
     }
 }

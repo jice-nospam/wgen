@@ -1,11 +1,7 @@
-use std::sync::mpsc::Sender;
-
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 
-use crate::ThreadMessage;
-
-use super::{report_progress, vec_get_safe, DIRX, DIRY};
+use super::{vec_get_safe, DIRX, DIRY};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct MudSlideConf {
@@ -57,31 +53,15 @@ pub fn render_mudslide(ui: &mut egui::Ui, conf: &mut MudSlideConf) {
     });
 }
 
-pub fn gen_mudslide(
-    size: (usize, usize),
-    hmap: &mut Vec<f32>,
-    conf: &MudSlideConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
-) {
-    for i in 0..conf.iterations as usize {
-        mudslide(size, hmap, i, conf, export, tx.clone(), min_progress_step);
+pub fn gen_mudslide(size: (usize, usize), hmap: &mut Vec<f32>, conf: &MudSlideConf) {
+    for _ in 0..conf.iterations as usize {
+        mudslide(size, hmap, conf);
     }
 }
 
-fn mudslide(
-    size: (usize, usize),
-    hmap: &mut Vec<f32>,
-    iteration: usize,
-    conf: &MudSlideConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
-) {
+fn mudslide(size: (usize, usize), hmap: &mut Vec<f32>, conf: &MudSlideConf) {
     let sand_coef = 1.0 / (1.0 - conf.water_level);
     let mut new_hmap = vec![0.0; size.0 * size.1];
-    let mut progress = 0.0;
     for y in 0..size.1 {
         let yoff = y * size.0;
         for x in 0..size.0 {
@@ -118,12 +98,6 @@ fn mudslide(
             let hcoef = (h - conf.water_level) * sand_coef;
             dh *= 1.0 - hcoef * hcoef * hcoef; // less smoothing at high altitudes
             new_hmap[x + y * size.0] = h + dh;
-        }
-        let new_progress = iteration as f32 / conf.iterations as f32
-            + (y as f32 / size.1 as f32) / conf.iterations as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
         }
     }
     *hmap = new_hmap;

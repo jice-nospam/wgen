@@ -1,6 +1,5 @@
-use std::sync::mpsc::Sender;
+use std::fmt::Display;
 use std::time::Instant;
-use std::{fmt::Display, sync::mpsc::Receiver};
 
 use serde::{Deserialize, Serialize};
 
@@ -9,30 +8,7 @@ use crate::generators::{
     gen_water_erosion, get_min_max, FbmConf, HillsConf, IslandConf, LandMassConf, MidPointConf,
     MudSlideConf, NormalizeConf, WaterErosionConf,
 };
-use crate::{log, ThreadMessage, MASK_SIZE};
-
-#[derive(Debug)]
-/// commands sent by the main thread to the world generator thread
-pub enum WorldGenCommand {
-    /// recompute a specific step : step index, step conf, live preview, min progress step to report
-    ExecuteStep(usize, Step, bool, f32),
-    /// remove a step
-    DeleteStep(usize),
-    /// enable a step
-    EnableStep(usize),
-    /// disable a step
-    DisableStep(usize),
-    /// change the heightmap size
-    SetSize(usize),
-    /// return the heightmap for a given step
-    GetStepMap(usize),
-    /// change the random number generator seed
-    SetSeed(u64),
-    /// remove all steps
-    Clear,
-    /// cancel previous undone ExecuteStep commands from a specific step
-    Abort(usize),
-}
+use crate::{log, MASK_SIZE};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 /// Each value contains its own configuration
@@ -111,116 +87,6 @@ pub struct WorldGenerator {
     hmap: Vec<HMap>,
 }
 
-struct InnerStep {
-    index: usize,
-    step: Step,
-    live: bool,
-    min_progress_step: f32,
-}
-
-fn do_command(
-    msg: WorldGenCommand,
-    wgen: &mut WorldGenerator,
-    steps: &mut Vec<InnerStep>,
-    tx: Sender<ThreadMessage>,
-) {
-    log(&format!("wgen<={:?}", msg));
-    match msg {
-        WorldGenCommand::Clear => {
-            wgen.clear();
-        }
-        WorldGenCommand::SetSeed(new_seed) => {
-            wgen.seed = new_seed;
-        }
-        WorldGenCommand::ExecuteStep(index, step, live, min_progress_step) => {
-            steps.push(InnerStep {
-                index,
-                step,
-                live,
-                min_progress_step,
-            });
-        }
-        WorldGenCommand::DeleteStep(index) => {
-            wgen.hmap.remove(index);
-        }
-        WorldGenCommand::DisableStep(index) => {
-            wgen.hmap[index].disabled = true;
-        }
-        WorldGenCommand::EnableStep(index) => {
-            wgen.hmap[index].disabled = false;
-        }
-        WorldGenCommand::GetStepMap(index) => tx
-            .send(ThreadMessage::GeneratorStepMap(
-                index,
-                wgen.get_step_export_map(index),
-            ))
-            .unwrap(),
-        WorldGenCommand::Abort(from_idx) => {
-            let mut i = 0;
-            while i < steps.len() {
-                if steps[i].index >= from_idx {
-                    steps.remove(i);
-                } else {
-                    i += 1;
-                }
-            }
-        }
-        WorldGenCommand::SetSize(size) => {
-            *wgen = WorldGenerator::new(wgen.seed, (size, size));
-        }
-    }
-}
-
-pub fn generator_thread(
-    seed: u64,
-    size: usize,
-    rx: Receiver<WorldGenCommand>,
-    tx: Sender<ThreadMessage>,
-) {
-    let mut wgen = WorldGenerator::new(seed, (size, size));
-    let mut steps = Vec::new();
-    loop {
-        if steps.is_empty() {
-            // blocking wait until next command
-            if let Ok(msg) = rx.recv() {
-                let tx = tx.clone();
-                do_command(msg, &mut wgen, &mut steps, tx);
-            }
-        }
-        // execute all pending commands
-        while let Ok(msg) = rx.try_recv() {
-            let tx = tx.clone();
-            do_command(msg, &mut wgen, &mut steps, tx);
-        }
-        if !steps.is_empty() {
-            let InnerStep {
-                index,
-                step,
-                live,
-                min_progress_step,
-            } = steps.remove(0);
-            let tx2 = tx.clone();
-            // compute next step
-            wgen.execute_step(index, &step, false, tx2, min_progress_step);
-            if steps.is_empty() {
-                log("wgen=>Done");
-                tx.send(ThreadMessage::GeneratorDone(wgen.get_export_map()))
-                    .unwrap();
-            } else {
-                log(&format!("wgen=>GeneratorStepDone({})", index));
-                tx.send(ThreadMessage::GeneratorStepDone(
-                    index,
-                    if live {
-                        Some(wgen.get_step_export_map(index))
-                    } else {
-                        None
-                    },
-                ))
-                .unwrap();
-            }
-        }
-    }
-}
 impl WorldGenerator {
     pub fn new(seed: u64, world_size: (usize, usize)) -> Self {
         Self {
@@ -228,6 +94,18 @@ impl WorldGenerator {
             world_size,
             hmap: Vec::new(),
         }
+    }
+    pub fn set_seed(&mut self, seed: u64) {
+        self.seed = seed;
+    }
+    pub fn remove_step(&mut self, idx: usize) {
+        self.hmap.remove(idx);
+    }
+    pub fn disable_step(&mut self, idx: usize) {
+        self.hmap[idx].disabled = true;
+    }
+    pub fn enable_step(&mut self, idx: usize) {
+        self.hmap[idx].disabled = false;
     }
     pub fn get_export_map(&self) -> ExportMap {
         self.get_step_export_map(if self.hmap.is_empty() {
@@ -258,14 +136,7 @@ impl WorldGenerator {
         *self = WorldGenerator::new(self.seed, self.world_size);
     }
 
-    fn execute_step(
-        &mut self,
-        index: usize,
-        step: &Step,
-        export: bool,
-        tx: Sender<ThreadMessage>,
-        min_progress_step: f32,
-    ) {
+    pub fn execute_step(&mut self, index: usize, step: &Step) {
         let now = Instant::now();
         let len = self.hmap.len();
         if index >= len {
@@ -295,15 +166,7 @@ impl WorldGenerator {
                     ..
                 } => {
                     if !*disabled {
-                        gen_hills(
-                            self.seed,
-                            self.world_size,
-                            &mut hmap.h,
-                            conf,
-                            export,
-                            tx,
-                            min_progress_step,
-                        );
+                        gen_hills(self.seed, self.world_size, &mut hmap.h, conf);
                     }
                 }
                 Step {
@@ -312,15 +175,7 @@ impl WorldGenerator {
                     ..
                 } => {
                     if !*disabled {
-                        gen_fbm(
-                            self.seed,
-                            self.world_size,
-                            &mut hmap.h,
-                            conf,
-                            export,
-                            tx,
-                            min_progress_step,
-                        );
+                        gen_fbm(self.seed, self.world_size, &mut hmap.h, conf);
                     }
                 }
                 Step {
@@ -329,15 +184,7 @@ impl WorldGenerator {
                     ..
                 } => {
                     if !*disabled {
-                        gen_mid_point(
-                            self.seed,
-                            self.world_size,
-                            &mut hmap.h,
-                            conf,
-                            export,
-                            tx,
-                            min_progress_step,
-                        );
+                        gen_mid_point(self.seed, self.world_size, &mut hmap.h, conf);
                     }
                 }
                 Step {
@@ -355,14 +202,7 @@ impl WorldGenerator {
                     ..
                 } => {
                     if !*disabled {
-                        gen_landmass(
-                            self.world_size,
-                            &mut hmap.h,
-                            conf,
-                            export,
-                            tx,
-                            min_progress_step,
-                        );
+                        gen_landmass(self.world_size, &mut hmap.h, conf);
                     }
                 }
                 Step {
@@ -371,14 +211,7 @@ impl WorldGenerator {
                     ..
                 } => {
                     if !*disabled {
-                        gen_mudslide(
-                            self.world_size,
-                            &mut hmap.h,
-                            conf,
-                            export,
-                            tx,
-                            min_progress_step,
-                        );
+                        gen_mudslide(self.world_size, &mut hmap.h, conf);
                     }
                 }
                 Step {
@@ -387,15 +220,7 @@ impl WorldGenerator {
                     ..
                 } => {
                     if !*disabled {
-                        gen_water_erosion(
-                            self.seed,
-                            self.world_size,
-                            &mut hmap.h,
-                            conf,
-                            export,
-                            tx,
-                            min_progress_step,
-                        );
+                        gen_water_erosion(self.seed, self.world_size, &mut hmap.h, conf);
                     }
                 }
                 Step {
@@ -404,14 +229,7 @@ impl WorldGenerator {
                     ..
                 } => {
                     if !*disabled {
-                        gen_island(
-                            self.world_size,
-                            &mut hmap.h,
-                            conf,
-                            export,
-                            tx,
-                            min_progress_step,
-                        );
+                        gen_island(self.world_size, &mut hmap.h, conf);
                     }
                 }
             }
@@ -432,12 +250,10 @@ impl WorldGenerator {
         ));
     }
 
-    pub fn generate(&mut self, steps: &[Step], tx: Sender<ThreadMessage>, min_progress_step: f32) {
+    pub fn generate(&mut self, steps: &[Step]) {
         self.clear();
         for (i, step) in steps.iter().enumerate() {
-            let tx2 = tx.clone();
-            self.execute_step(i, step, true, tx2, min_progress_step);
-            tx.send(ThreadMessage::ExporterStepDone(i)).unwrap();
+            self.execute_step(i, step);
         }
     }
 

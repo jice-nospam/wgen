@@ -1,11 +1,7 @@
-use std::sync::mpsc::Sender;
-
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 
-use crate::ThreadMessage;
-
-use super::{normalize, report_progress};
+use super::normalize;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct LandMassConf {
@@ -65,16 +61,8 @@ pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
     });
 }
 
-pub fn gen_landmass(
-    size: (usize, usize),
-    hmap: &mut [f32],
-    conf: &LandMassConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
-) {
+pub fn gen_landmass(size: (usize, usize), hmap: &mut [f32], conf: &LandMassConf) {
     let mut height_count: [f32; 256] = [0.0; 256];
-    let mut progress = 0.0;
     normalize(hmap, 0.0, 1.0);
     for y in 0..size.1 {
         let yoff = y * size.0;
@@ -82,11 +70,6 @@ pub fn gen_landmass(
             let h = hmap[x + yoff];
             let ih = (h * 255.0) as usize;
             height_count[ih] += 1.0;
-        }
-        let new_progress = 0.33 * y as f32 / size.1 as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
         }
     }
     let mut water_level = 0;
@@ -111,11 +94,6 @@ pub fn gen_landmass(
             }
             hmap[x + yoff] = h;
         }
-        let new_progress = 0.33 + 0.33 * y as f32 / size.1 as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
-        }
     }
     // fix land/mountain ratio using h^plain_factor curve above sea level
     for y in 0..size.1 {
@@ -128,11 +106,6 @@ pub fn gen_landmass(
                 h = conf.water_level + coef * (1.0 - conf.water_level);
                 hmap[x + y * size.0] = h;
             }
-        }
-        let new_progress = 0.66 + 0.33 * y as f32 / size.1 as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
         }
     }
 }

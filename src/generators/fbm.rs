@@ -1,5 +1,3 @@
-use std::sync::mpsc::Sender;
-
 use eframe::egui;
 use noise::{Fbm, MultiFractal, NoiseFn, Seedable};
 use serde::{Deserialize, Serialize};
@@ -7,10 +5,6 @@ use three_d::{
     DepthFormat, DepthTargetTexture2D, HeadlessContext, Interpolation, RenderTarget, Texture2D,
     TextureData, Wrapping,
 };
-
-use crate::ThreadMessage;
-
-use super::report_progress;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct FbmConf {
@@ -80,14 +74,11 @@ pub fn render_fbm(ui: &mut egui::Ui, conf: &mut FbmConf) {
     });
 }
 
-fn gen_fbm_gpu(
-    seed: u64,
+fn _gen_fbm_gpu(
+    _seed: u64,
     size: (usize, usize),
     hmap: &mut [f32],
-    conf: &FbmConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
+    _conf: &FbmConf,
 ) -> Result<(), ()> {
     let context = HeadlessContext::new().map_err(|_| ())?;
     let mut texture = Texture2D::new_empty::<f32>(
@@ -107,33 +98,13 @@ fn gen_fbm_gpu(
     Ok(())
 }
 
-pub fn gen_fbm(
-    seed: u64,
-    size: (usize, usize),
-    hmap: &mut [f32],
-    conf: &FbmConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
-) {
-    if gen_fbm_gpu(
-        seed,
-        size,
-        hmap,
-        conf,
-        export,
-        tx.clone(),
-        min_progress_step,
-    )
-    .is_ok()
-    {
-        return;
-    }
+pub fn gen_fbm(seed: u64, size: (usize, usize), hmap: &mut [f32], conf: &FbmConf) {
+    // if gen_fbm_gpu(seed, size, hmap, conf).is_ok() {
+    //     return;
+    // }
     // fall back to CPU generator
     let xcoef = conf.mulx / 400.0;
     let ycoef = conf.muly / 400.0;
-    let mut progress = 0.0;
-
     let num_threads = num_cpus::get();
     std::thread::scope(|s| {
         let size_per_job = size.1 / num_threads;
@@ -142,7 +113,6 @@ pub fn gen_fbm(
             let fbm = Fbm::new()
                 .set_seed(seed as u32)
                 .set_octaves(conf.octaves as usize);
-            let tx = tx.clone();
             s.spawn(move || {
                 let yoffset = i * size_per_job;
                 let lasty = size_per_job.min(size.1 - yoffset);
@@ -155,13 +125,6 @@ pub fn gen_fbm(
                             conf.delta + fbm.get([f0 as f64, f1 as f64]) as f32 * conf.scale;
                         chunk[offset] += value;
                         offset += 1;
-                    }
-                    if i == 0 {
-                        let new_progress = (y + 1) as f32 / size_per_job as f32;
-                        if new_progress - progress >= min_progress_step {
-                            progress = new_progress;
-                            report_progress(progress, export, tx.clone())
-                        }
                     }
                 }
             });

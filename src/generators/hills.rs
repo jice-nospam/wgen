@@ -1,12 +1,6 @@
-use std::sync::mpsc::Sender;
-
 use eframe::egui;
 use rand::{prelude::*, rngs::StdRng};
 use serde::{Deserialize, Serialize};
-
-use crate::ThreadMessage;
-
-use super::report_progress;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct HillsConf {
@@ -52,21 +46,12 @@ pub fn render_hills(ui: &mut egui::Ui, conf: &mut HillsConf) {
     });
 }
 
-pub fn gen_hills(
-    seed: u64,
-    size: (usize, usize),
-    hmap: &mut [f32],
-    conf: &HillsConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
-) {
+pub fn gen_hills(seed: u64, size: (usize, usize), hmap: &mut [f32], conf: &HillsConf) {
     let mut rng = StdRng::seed_from_u64(seed);
     let real_radius = conf.base_radius * size.0 as f32 / 200.0;
     let hill_min_radius = real_radius * (1.0 - conf.radius_var);
     let hill_max_radius = real_radius * (1.0 + conf.radius_var);
-    let mut progress = 0.0;
-    for i in 0..conf.nb_hill {
+    for _ in 0..conf.nb_hill {
         let radius: f32 = if conf.radius_var == 0.0 {
             hill_min_radius
         } else {
@@ -88,11 +73,6 @@ pub fn gen_hills(
                     hmap[px + py * size.0] += z * coef;
                 }
             }
-        }
-        let new_progress = i as f32 / conf.nb_hill as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
         }
     }
 }

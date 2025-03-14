@@ -75,14 +75,14 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
         ui.add(
             egui::DragValue::new(&mut conf.drop_amount)
                 .speed(0.01)
-                .clamp_range(0.1..=2.0),
+                .range(0.1..=2.0),
         );
         ui.label("erosion strength")
             .on_hover_text("How much soil is eroded by the drop");
         ui.add(
             egui::DragValue::new(&mut conf.erosion_strength)
                 .speed(0.01)
-                .clamp_range(0.01..=1.0),
+                .range(0.01..=1.0),
         );
     });
     ui.horizontal(|ui| {
@@ -91,14 +91,14 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
         ui.add(
             egui::DragValue::new(&mut conf.capacity)
                 .speed(0.5)
-                .clamp_range(2.0..=32.0),
+                .range(2.0..=32.0),
         );
         ui.label("inertia")
             .on_hover_text("Inertia of the drop. Increase for smoother result");
         ui.add(
             egui::DragValue::new(&mut conf.inertia)
                 .speed(0.01)
-                .clamp_range(0.01..=0.5),
+                .range(0.01..=0.5),
         );
     });
     ui.horizontal(|ui| {
@@ -107,14 +107,14 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
         ui.add(
             egui::DragValue::new(&mut conf.deposition)
                 .speed(0.01)
-                .clamp_range(0.01..=1.0),
+                .range(0.01..=1.0),
         );
         ui.label("evaporation")
             .on_hover_text("How fast the drop evaporate. Increase for smoother results");
         ui.add(
             egui::DragValue::new(&mut conf.evaporation)
                 .speed(0.01)
-                .clamp_range(0.01..=0.5),
+                .range(0.01..=0.5),
         );
     });
     ui.horizontal(|ui| {
@@ -122,14 +122,14 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
         ui.add(
             egui::DragValue::new(&mut conf.radius)
                 .speed(0.1)
-                .clamp_range(1.0..=10.0),
+                .range(1.0..=10.0),
         );
         ui.label("minimum slope")
             .on_hover_text("Minimum height for the drop capacity calculation");
         ui.add(
             egui::DragValue::new(&mut conf.min_slope)
                 .speed(0.001)
-                .clamp_range(0.001..=0.1),
+                .range(0.001..=0.1),
         );
     });
 }
@@ -162,8 +162,8 @@ pub fn gen_water_erosion(
         for _ in 0..size.0 {
             let mut drop = Drop {
                 pos: (
-                    rng.gen_range(0, size.0 - 1) as f32,
-                    rng.gen_range(0, size.1 - 1) as f32,
+                    rng.random_range(0..size.0 - 1) as f32,
+                    rng.random_range(0..size.1 - 1) as f32,
                 ),
                 dir: (0.0, 0.0),
                 sediment: 0.0,
@@ -287,7 +287,7 @@ fn normalize_dir(dx: f32, dy: f32, rng: &mut StdRng) -> (f32, f32) {
     let len = (dx * dx + dy * dy).sqrt();
     if len < std::f32::EPSILON {
         // random direction
-        let angle = rng.gen_range(0.0, std::f32::consts::PI * 2.0);
+        let angle = rng.random_range(0.0..std::f32::consts::PI * 2.0);
         (angle.cos(), angle.sin())
     } else {
         (dx / len, dy / len)

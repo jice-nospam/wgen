@@ -1,7 +1,7 @@
 use std::sync::mpsc::Sender;
 
 use eframe::egui;
-use noise::{Fbm, MultiFractal, NoiseFn, Seedable};
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use serde::{Deserialize, Serialize};
 
 use crate::ThreadMessage;
@@ -51,7 +51,7 @@ pub fn render_fbm(ui: &mut egui::Ui, conf: &mut FbmConf) {
         ui.add(
             egui::DragValue::new(&mut conf.octaves)
                 .speed(0.5)
-                .clamp_range(1.0..=Fbm::MAX_OCTAVES as f32),
+                .clamp_range(1.0..=Fbm::<Perlin>::MAX_OCTAVES as f32),
         );
     });
     ui.horizontal(|ui| {
@@ -92,10 +92,9 @@ pub fn gen_fbm(
     std::thread::scope(|s| {
         let size_per_job = size.1 / num_threads;
         for (i, chunk) in hmap.chunks_mut(size_per_job * size.0).enumerate() {
-            let i = i;
-            let fbm = Fbm::new()
-                .set_seed(seed as u32)
-                .set_octaves(conf.octaves as usize);
+            // FIXME: Why was this here
+            // let i = i;
+            let fbm = Fbm::<Perlin>::new(seed as u32).set_octaves(conf.octaves as usize);
             let tx = tx.clone();
             s.spawn(move || {
                 let yoffset = i * size_per_job;

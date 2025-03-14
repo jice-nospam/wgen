@@ -14,7 +14,9 @@ mod panel_maskedit;
 mod panel_save;
 mod worldgen;
 
+use eframe::egui::accesskit::Vec2;
 use eframe::egui::{self, Visuals};
+use epaint::{emath, Rect};
 use exporter::export_heightmap;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -50,11 +52,11 @@ pub enum ThreadMessage {
 
 fn main() {
     let options = eframe::NativeOptions {
-        maximized: true,
         multisampling: 8,
         depth_buffer: 24,
         renderer: eframe::Renderer::Glow,
         vsync: true,
+        viewport: egui::ViewportBuilder::default().with_maximized(true),
         ..Default::default()
     };
     println!(
@@ -63,7 +65,11 @@ fn main() {
         num_cpus::get(),
         num_cpus::get_physical()
     );
-    eframe::run_native("wgen", options, Box::new(|_cc| Box::new(MyApp::default())));
+    eframe::run_native(
+        "wgen",
+        options,
+        Box::new(|_cc| Ok(Box::new(MyApp::default()))),
+    );
 }
 
 struct MyApp {
@@ -294,7 +300,7 @@ impl MyApp {
                             self.gen_panel.mask_selected = false;
                         }
                         Some(Panel2dAction::MaskUpdated) => {
-                            self.last_mask_updated = ui.input().time;
+                            self.last_mask_updated = ui.input(|r| r.time);
                         }
                         Some(Panel2dAction::MaskDelete) => {
                             if let Some(step) = self.mask_step {
@@ -395,7 +401,13 @@ impl MyApp {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        let wsize = frame.info().window_info.size;
+        let wsize = ctx.input(|i| {
+            if let Some(rect) = i.viewport().inner_rect {
+                rect.size()
+            } else {
+                emath::Vec2::new(0.0, 0.0)
+            }
+        });
         let new_size = ((wsize.x - 340.0) * 0.5) as usize;
         if new_size != self.image_size && new_size != 0 {
             // handle window resizing
@@ -409,7 +421,7 @@ impl eframe::App for MyApp {
         self.handle_threads_messages();
         self.render_left_panel(ctx);
         self.render_central_panel(ctx);
-        if self.last_mask_updated > 0.0 && ctx.input().time - self.last_mask_updated >= 0.5 {
+        if self.last_mask_updated > 0.0 && ctx.input(|i| i.time) - self.last_mask_updated >= 0.5 {
             if let Some(step) = self.mask_step {
                 // mask was updated, copy mask to generator step
                 if let Some(mask) = self.panel_2d.get_current_mask() {

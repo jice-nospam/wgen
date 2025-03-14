@@ -1,9 +1,9 @@
 use eframe::egui::{self, PointerButton};
 use image::EncodableLayout;
 use three_d::{
-    degrees, radians, vec2, vec3, AmbientLight, Camera, ClearState, Color, CpuMaterial, CpuMesh,
-    CpuTexture, Cull, DirectionalLight, Gm, Indices, InnerSpace, Mat3, Mat4, Mesh,
-    PhysicalMaterial, Positions, TextureData, Vec3,
+    core::prelude::Srgba, degrees, radians, vec2, vec3, AmbientLight, Camera, ClearState,
+    CpuMaterial, CpuMesh, CpuTexture, Cull, DirectionalLight, Gm, Indices, InnerSpace, Mat3, Mat4,
+    Mesh, PhysicalMaterial, Positions, TextureData, Vec3,
 };
 
 use crate::worldgen::ExportMap;
@@ -170,7 +170,7 @@ impl Panel3dView {
         }
         let mut cpu_mesh = three_d::CpuMesh {
             positions: three_d::Positions::F32(self.mesh_data.vertices.clone()),
-            indices: Some(three_d::Indices::U32(self.mesh_data.indices.clone())),
+            indices: three_d::Indices::U32(self.mesh_data.indices.clone()),
             ..Default::default()
         };
         cpu_mesh.compute_normals();
@@ -181,9 +181,9 @@ impl Panel3dView {
     fn render_3dview(&mut self, ui: &mut egui::Ui) {
         let (rect, response) =
             ui.allocate_exact_size(egui::Vec2::splat(self.size), egui::Sense::drag());
-        let lbutton = ui.input().pointer.button_down(PointerButton::Primary);
-        let rbutton = ui.input().pointer.button_down(PointerButton::Secondary);
-        let mbutton = ui.input().pointer.button_down(PointerButton::Middle);
+        let lbutton = ui.input(|i| i.pointer.button_down(PointerButton::Primary));
+        let rbutton = ui.input(|i| i.pointer.button_down(PointerButton::Secondary));
+        let mbutton = ui.input(|i| i.pointer.button_down(PointerButton::Middle));
         if lbutton {
             self.conf.orbit[0] += response.drag_delta().x * 0.01;
             self.conf.orbit[1] += response.drag_delta().y * 0.01;
@@ -246,8 +246,8 @@ impl FrameInput<'_> {
         #[cfg(not(target_arch = "wasm32"))]
         #[allow(unsafe_code)]
         unsafe {
-            use glow::HasContext as _;
-            context.disable(glow::FRAMEBUFFER_SRGB);
+            use egui_glow::glow::HasContext as _;
+            context.disable(egui_glow::glow::FRAMEBUFFER_SRGB);
         }
 
         // Constructs a screen render target to render the final image to
@@ -272,19 +272,19 @@ impl FrameInput<'_> {
         // Set where to paint
         let viewport = info.viewport_in_pixels();
         let viewport = Viewport {
-            x: viewport.left_px.round() as _,
-            y: viewport.from_bottom_px.round() as _,
-            width: viewport.width_px.round() as _,
-            height: viewport.height_px.round() as _,
+            x: viewport.left_px,
+            y: viewport.from_bottom_px,
+            width: viewport.width_px as u32,
+            height: viewport.height_px as u32,
         };
 
         // Respect the egui clip region (e.g. if we are inside an `egui::ScrollArea`).
         let clip_rect = info.clip_rect_in_pixels();
         let scissor_box = ScissorBox {
-            x: clip_rect.left_px.round() as _,
-            y: clip_rect.from_bottom_px.round() as _,
-            width: clip_rect.width_px.round() as _,
-            height: clip_rect.height_px.round() as _,
+            x: clip_rect.left_px,
+            y: clip_rect.from_bottom_px,
+            width: clip_rect.width_px as u32,
+            height: clip_rect.height_px as u32,
         };
         Self {
             screen,
@@ -295,7 +295,7 @@ impl FrameInput<'_> {
 }
 
 fn with_three_d_context<R>(
-    gl: &std::sync::Arc<glow::Context>,
+    gl: &std::sync::Arc<egui_glow::glow::Context>,
     f: impl FnOnce(&three_d::Context, &mut Renderer) -> R,
 ) -> R {
     use std::cell::RefCell;
@@ -304,14 +304,14 @@ fn with_three_d_context<R>(
     }
     #[allow(unsafe_code)]
     unsafe {
-        use glow::HasContext as _;
-        gl.enable(glow::DEPTH_TEST);
+        use egui_glow::glow::HasContext as _;
+        gl.enable(egui_glow::glow::DEPTH_TEST);
         if !cfg!(target_arch = "wasm32") {
-            gl.disable(glow::FRAMEBUFFER_SRGB);
+            gl.disable(egui_glow::glow::FRAMEBUFFER_SRGB);
         }
-        gl.clear(glow::DEPTH_BUFFER_BIT);
+        gl.clear(egui_glow::glow::DEPTH_BUFFER_BIT);
         gl.clear_depth_f32(1.0);
-        gl.depth_func(glow::LESS);
+        gl.depth_func(egui_glow::glow::LESS);
     }
     THREE_D.with(|context| {
         let mut context = context.borrow_mut();
@@ -342,7 +342,7 @@ impl Renderer {
             &CpuMaterial {
                 roughness: 1.0,
                 metallic: 0.0,
-                albedo: Color::new_opaque(45, 30, 25),
+                albedo: Srgba::new_opaque(45, 30, 25),
                 ..Default::default()
             },
         );
@@ -358,10 +358,10 @@ impl Renderer {
             directional: DirectionalLight::new(
                 three_d,
                 1.5,
-                Color::new_opaque(255, 222, 180),
-                &vec3(-0.5, 0.5, -0.5).normalize(),
+                Srgba::new_opaque(255, 222, 180),
+                vec3(-0.5, 0.5, -0.5).normalize(),
             ),
-            ambient: AmbientLight::new(&three_d, 0.5, Color::WHITE),
+            ambient: AmbientLight::new(&three_d, 0.5, Srgba::WHITE),
         }
     }
     pub fn update_model(&mut self, three_d: &three_d::Context, mesh_data: &Option<MeshData>) {
@@ -372,7 +372,7 @@ impl Renderer {
                 *vertices = mesh_data.vertices.clone();
             }
             if rebuild {
-                self.terrain_mesh.indices = Some(Indices::U32(mesh_data.indices.clone()));
+                self.terrain_mesh.indices = Indices::U32(mesh_data.indices.clone());
                 self.terrain_mesh.normals = Some(mesh_data.normals.clone());
                 self.terrain_mesh.uvs = Some(mesh_data.uv.clone());
                 self.terrain_mesh.tangents = None;
@@ -406,12 +406,14 @@ impl Renderer {
             XY_SCALE * 10.0,
         );
 
-        camera.rotate_around_with_fixed_up(&target, 0.0, conf.orbit[1] * XY_SCALE * 2.0);
+        camera.rotate_around_with_fixed_up(target, 0.0, conf.orbit[1] * XY_SCALE * 2.0);
 
-        camera.translate(&(conf.pan[1] * camera.up() - conf.pan[0] * camera.right_direction()));
+        let up = camera.up();
+        let right_direction = camera.right_direction();
+        camera.translate(conf.pan[1] * up - conf.pan[0] * right_direction);
         let camz = camera.position().z;
         if camz < conf.water_level + 10.0 {
-            camera.translate(&vec3(0.0, 0.0, conf.water_level + 10.0 - camz));
+            camera.translate(vec3(0.0, 0.0, conf.water_level + 10.0 - camz));
         }
 
         let mut transfo = Mat4::from_angle_z(radians(conf.orbit[0] * 2.0));
@@ -479,20 +481,20 @@ fn build_sky(three_d: &three_d::Context) -> Gm<Mesh, PhysicalMaterial> {
     }
     const SUBDIV: u32 = 32;
     let mut sky2 = uv_wrapping_cylinder(SUBDIV);
-    sky2.transform(&Mat4::from_nonuniform_scale(
+    sky2.transform(Mat4::from_nonuniform_scale(
         ZSCALE * 5.0,
         XY_SCALE * 2.0,
         XY_SCALE * 2.0,
     ))
     .unwrap();
-    sky2.transform(&Mat4::from_angle_y(degrees(-90.0))).unwrap();
-    sky2.transform(&Mat4::from_angle_z(degrees(90.0))).unwrap();
+    sky2.transform(Mat4::from_angle_y(degrees(-90.0))).unwrap();
+    sky2.transform(Mat4::from_angle_z(degrees(90.0))).unwrap();
     let mut sky_material = PhysicalMaterial::new_opaque(
         three_d,
         &CpuMaterial {
             roughness: 1.0,
             metallic: 0.0,
-            emissive: Color::WHITE,
+            emissive: Srgba::WHITE,
             emissive_texture: Some(CpuTexture {
                 width: img.width(),
                 height: img.height(),
@@ -514,7 +516,7 @@ fn build_water_plane(three_d: &three_d::Context) -> Gm<Mesh, PhysicalMaterial> {
         &CpuMaterial {
             roughness: 0.1,
             metallic: 0.2,
-            albedo: Color::new_opaque(50, 60, 150),
+            albedo: Srgba::new_opaque(50, 60, 150),
             ..Default::default()
         },
     );
@@ -555,9 +557,9 @@ fn uv_wrapping_cylinder(angle_subdivisions: u32) -> CpuMesh {
         uvs.push(vec2(u, 0.0));
     }
     let mut mesh = CpuMesh {
-        name: "cylinder".to_string(),
+        // name: "cylinder".to_string(),
         positions: Positions::F32(positions),
-        indices: Some(Indices::U16(indices)),
+        indices: Indices::U16(indices),
         uvs: Some(uvs),
         ..Default::default()
     };

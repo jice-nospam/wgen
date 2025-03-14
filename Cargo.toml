@@ -4,20 +4,20 @@ version = "0.3.1"
 edition = "2021"
 
 [dependencies]
-eframe = "0.19.*"
-egui_extras = { version = "0.19.*", features = ["image"] }
-epaint = "0.19.*"
-egui_glow = "0.19.*"
-glow = "0.11"
-three-d = { version = "0.13", default-features = false }
-image = { version = "0.24", default-features = false, features = [
+eframe = "0.29.1"
+egui_extras = { version = "0.29.1", features = ["image"] }
+epaint = "0.29.1"
+egui_glow = "0.29.1"
+# glow = "0.14.2"
+three-d = { version = "0.18.2", default-features = false }
+image = { version = "0.25.5", default-features = false, features = [
     "png",
     "jpeg",
 ] }
 exr = "1.5.2"
-rand = "0.7.3"
-noise = { version = "0.7", default-features = false }
+rand = "0.9.0"
+noise = { version = "0.9", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
-ron = "0.7"
-num_cpus = "1.*"
-rfd = "0.10"
+ron = "0.8.1"
+num_cpus = "1.16.0"
+rfd = "0.15.3"

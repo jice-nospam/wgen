@@ -4,8 +4,8 @@ use eframe::{
 };
 use epaint::{Color32, ColorImage, Pos2, Rect};
 use three_d::{
-    core::Color, vec3, Blend, Camera, ColorMaterial, CpuMaterial, CpuMesh, CpuTexture, Cull,
-    DepthTest, Gm, Indices, Mat4, Mesh, Object, Positions, TextureData, Viewport,
+    vec3, Blend, Camera, ColorMaterial, CpuMaterial, CpuMesh, CpuTexture, Cull, DepthTest, Gm,
+    Indices, Mat4, Mesh, Object, Positions, Srgba, TextureData, Viewport,
 };
 
 use crate::{panel_2dview::Panel2dAction, MASK_SIZE};
@@ -95,26 +95,26 @@ impl PanelMaskEdit {
                 ui.add(
                     egui::DragValue::new(&mut self.conf.size)
                         .speed(0.01)
-                        .clamp_range(1.0 / (MASK_SIZE as f32)..=1.0),
+                        .range(1.0 / (MASK_SIZE as f32)..=1.0),
                 );
                 ui.label("falloff");
                 let old_falloff = self.conf.falloff;
                 ui.add(
                     egui::DragValue::new(&mut self.conf.falloff)
                         .speed(0.01)
-                        .clamp_range(0.0..=1.0),
+                        .range(0.0..=1.0),
                 );
                 ui.label("value");
                 ui.add(
                     egui::DragValue::new(&mut self.conf.value)
                         .speed(0.01)
-                        .clamp_range(0.0..=1.0),
+                        .range(0.0..=1.0),
                 );
                 ui.label("opacity");
                 ui.add(
                     egui::DragValue::new(&mut self.conf.opacity)
                         .speed(0.01)
-                        .clamp_range(0.0..=1.0),
+                        .range(0.0..=1.0),
                 );
                 // need to update the brush mesh ?
                 self.brush_updated = old_falloff != self.conf.falloff;
@@ -124,7 +124,7 @@ impl PanelMaskEdit {
                 ui.add(
                     egui::DragValue::new(&mut self.heightmap_transparency)
                         .speed(0.01)
-                        .clamp_range(0.0..=1.0),
+                        .range(0.0..=1.0),
                 );
             });
             if ui
@@ -146,10 +146,10 @@ impl PanelMaskEdit {
             egui::Vec2::splat(self.image_size as f32),
             egui::Sense::drag(),
         );
-        let lbutton = ui.input().pointer.button_down(PointerButton::Primary);
-        let rbutton = ui.input().pointer.button_down(PointerButton::Secondary);
-        let mbutton = ui.input().pointer.button_down(PointerButton::Middle);
-        let mut mouse_pos = ui.input().pointer.hover_pos();
+        let lbutton = ui.input(|i| i.pointer.button_down(PointerButton::Primary));
+        let rbutton = ui.input(|i| i.pointer.button_down(PointerButton::Secondary));
+        let mbutton = ui.input(|i| i.pointer.button_down(PointerButton::Middle));
+        let mut mouse_pos = ui.input(|i| i.pointer.hover_pos());
         let to_screen = emath::RectTransform::from_to(
             Rect::from_min_size(Pos2::ZERO, response.rect.square_proportions()),
             response.rect,
@@ -166,10 +166,10 @@ impl PanelMaskEdit {
         let brush_updated = self.brush_updated;
         let brush_config = self.conf;
         let time = if self.prev_frame_time == -1.0 {
-            self.prev_frame_time = ui.input().time;
+            self.prev_frame_time = ui.input(|i| i.time);
             0.0
         } else {
-            let t = ui.input().time;
+            let t = ui.input(|i| i.time);
             let elapsed = t - self.prev_frame_time;
             self.prev_frame_time = t;
             elapsed
@@ -271,7 +271,7 @@ fn in_canvas(canvas_pos: Pos2) -> bool {
 }
 
 fn with_three_d_context<R>(
-    gl: &std::sync::Arc<glow::Context>,
+    gl: &std::sync::Arc<egui_glow::glow::Context>,
     f: impl FnOnce(&three_d::Context, &mut Renderer) -> R,
 ) -> R {
     use std::cell::RefCell;
@@ -280,11 +280,11 @@ fn with_three_d_context<R>(
     }
     #[allow(unsafe_code)]
     unsafe {
-        use glow::HasContext as _;
-        gl.disable(glow::DEPTH_TEST);
-        gl.enable(glow::BLEND);
+        use egui_glow::glow::HasContext as _;
+        gl.disable(egui_glow::glow::DEPTH_TEST);
+        gl.enable(egui_glow::glow::BLEND);
         if !cfg!(target_arch = "wasm32") {
-            gl.disable(glow::FRAMEBUFFER_SRGB);
+            gl.disable(egui_glow::glow::FRAMEBUFFER_SRGB);
         }
     }
     THREE_D.with(|context| {
@@ -314,7 +314,7 @@ impl Renderer {
             &CpuMaterial {
                 roughness: 1.0,
                 metallic: 0.0,
-                albedo: Color::WHITE,
+                albedo: Srgba::WHITE,
                 ..Default::default()
             },
         );
@@ -375,10 +375,10 @@ impl Renderer {
         // Set where to paint
         let viewport = info.viewport_in_pixels();
         let viewport = Viewport {
-            x: viewport.left_px.round() as _,
-            y: viewport.from_bottom_px.round() as _,
-            width: viewport.width_px.round() as _,
-            height: viewport.height_px.round() as _,
+            x: viewport.left_px,
+            y: viewport.from_bottom_px,
+            width: viewport.width_px as _,
+            height: viewport.height_px as _,
         };
 
         let target = vec3(0.0, 0.0, 0.0);
@@ -440,10 +440,10 @@ fn build_brush(falloff: f32) -> CpuMesh {
         vertices.push(vec3(angle.cos(), angle.sin(), 0.0));
     }
     for _ in 0..33 {
-        colors.push(Color::RED);
+        colors.push(Srgba::RED);
     }
     for _ in 0..64 {
-        colors.push(Color::new(255, 0, 0, 0));
+        colors.push(Srgba::new(255, 0, 0, 0));
     }
     // inner ring
     for i in 0..32 {
@@ -466,9 +466,9 @@ fn build_brush(falloff: f32) -> CpuMesh {
         indices.push(33 + (2 * i + 2) % 64);
     }
     CpuMesh {
-        name: "brush".to_string(),
+        // name: "brush".to_string(),
         positions: Positions::F32(vertices),
-        indices: Some(Indices::U16(indices)),
+        indices: Indices::U16(indices),
         colors: Some(colors),
         ..Default::default()
     }
@@ -483,7 +483,7 @@ fn build_mask() -> CpuMesh {
         for x in 0..MASK_SIZE {
             let vx = x as f32 / (MASK_SIZE - 1) as f32 * 10.0 - 5.0;
             vertices.push(three_d::vec3(vx, vy, 0.0));
-            colors.push(Color::WHITE);
+            colors.push(Srgba::WHITE);
         }
     }
     for y in 0..MASK_SIZE - 1 {
@@ -500,7 +500,7 @@ fn build_mask() -> CpuMesh {
     }
     CpuMesh {
         positions: Positions::F32(vertices),
-        indices: Some(Indices::U32(indices)),
+        indices: Indices::U32(indices),
         colors: Some(colors),
         ..Default::default()
     }
@@ -518,7 +518,7 @@ fn build_heightmap(
         &CpuMaterial {
             roughness: 1.0,
             metallic: 0.0,
-            albedo: Color::new(255, 255, 255, 128),
+            albedo: Srgba::new(255, 255, 255, 128),
             albedo_texture: Some(CpuTexture {
                 width: image_size,
                 height: image_size,

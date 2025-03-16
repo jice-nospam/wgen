@@ -406,7 +406,7 @@ impl Renderer {
             XY_SCALE * 10.0,
         );
 
-        camera.rotate_around_with_fixed_up(target, 0.0, conf.orbit[1] * XY_SCALE * 2.0);
+        camera.rotate_around_with_fixed_up(target, 0.0, conf.orbit[1]);
 
         let up = camera.up();
         let right_direction = camera.right_direction();

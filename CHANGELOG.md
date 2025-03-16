@@ -1,36 +1,49 @@
 # Changelog
 
-## [?] - Unreleased
+## [0.4.0] - Unreleased
+
 ### Changed
+
 - exports to single channel EXR (slightly smaller files)
+- upgraded to egui 0.29, three_d 0.18
 
 ## [0.3.1] - 2022-10-25
+
 ### Added
+
 - seamless flag on exporter for game engines not supporting multi-texture heightmaps
 - now you can export to either 16 bits PNG (preferred format for Unreal Engine) or 16 bits float OpenExr format (for Godot)
 - added shore height parameter to landmass generator to avoid z fighting issues between the land mesh and a water plane
 
 ### Fixed
+
 - changing the height scale in the 3D preview preserves the water level
 
 ## [0.3.0] - 2022-10-06
+
 ### Added
+
 - editable masks to each step. Makes it possible to apply a step only on some part of the map
 
 ### Changed
+
 - improved overall performance and UI responsiveness
 
 ### Fixed
+
 - Horizontal rotation in the 3D view
 
 ## [0.2.0] - 2022-08-24
+
 ### Changed
+
 - improved water erosion algorithm
 - thanks to egui 0.19, UI is now responsive and adapts to any resolution
 - fbm generator is now multi-threaded and much faster
 - export and load/save panels now use a file dialog instead of a simple textbox
 
 ### Fixed
+
 - seed is now set correctly when loading a project
 - landmass works even if input is not normalized
 - 2d and 3d previews work when loading a project with less steps than current project
@@ -38,7 +51,9 @@
 - worldgen doesn't crash anymore if there is an error while loading/saving a project or exporting a heightmap
 
 ## [0.1.0] - 2022-08-05
+
 ### Added
+
 - Initial release
 - 16 bits grayscale tiled PNG exporter
 - save/restore projects to/from [RON](https://github.com/ron-rs/ron) files

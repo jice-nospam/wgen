@@ -47,10 +47,10 @@ pub fn gen_mid_point(
     min_progress_step: f32,
 ) {
     let mut rng = StdRng::seed_from_u64(seed);
-    hmap[0] = rng.gen_range(0.0, 1.0);
-    hmap[size.0 - 1] = rng.gen_range(0.0, 1.0);
-    hmap[size.0 * (size.1 - 1)] = rng.gen_range(0.0, 1.0);
-    hmap[size.0 * size.1 - 1] = rng.gen_range(0.0, 1.0);
+    hmap[0] = rng.random_range(0.0..1.0);
+    hmap[size.0 - 1] = rng.random_range(0.0..1.0);
+    hmap[size.0 * (size.1 - 1)] = rng.random_range(0.0..1.0);
+    hmap[size.0 * size.1 - 1] = rng.random_range(0.0..1.0);
     let mut track = ProgressTracking {
         count: size.0 * size.1 * 2,
         progress: 0.0,
@@ -144,7 +144,7 @@ fn square_step(
         count += 1;
     }
     avg /= count as f32;
-    avg += rng.gen_range(-roughness, roughness);
+    avg += rng.random_range(-roughness..roughness);
     hmap[x + y * size.0] = avg;
 }
 
@@ -176,6 +176,6 @@ fn diamond_step(
         count += 1;
     }
     avg /= count as f32;
-    avg += rng.gen_range(-roughness, roughness);
+    avg += rng.random_range(-roughness..roughness);
     hmap[x + y * size.0] = avg;
 }

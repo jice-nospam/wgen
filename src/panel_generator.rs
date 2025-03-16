@@ -78,13 +78,14 @@ impl Default for PanelGenerator {
 }
 
 fn render_step_gui(ui: &mut egui::Ui, id: Id, body: impl FnOnce(&mut egui::Ui)) -> Option<f32> {
-    let is_being_dragged = ui.memory().is_being_dragged(id);
+    
+    let is_being_dragged = ui.ctx().is_being_dragged(id);
     if !is_being_dragged {
         ui.scope(body);
     } else {
         let layer_id = LayerId::new(Order::Tooltip, id);
         let response = ui.with_layer_id(layer_id, body).response;
-        ui.output().cursor_icon = CursorIcon::Grabbing;
+        ui.output_mut(|i| i.cursor_icon  = CursorIcon::Grabbing);
         if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
             let mut delta = pointer_pos - response.rect.center();
             delta.x += 60.0;
@@ -224,7 +225,8 @@ impl PanelGenerator {
     ) -> Option<GeneratorAction> {
         let mut action = None;
         let len = self.steps.len();
-        let dragging = ui.memory().is_anything_being_dragged() && self.hovered;
+        // let dragging = ui.ctx().dragged_id.is_some()
+        let dragging = ui.memory(|m| m.is_anything_being_dragged()) && self.hovered;
         let response = ui
             .scope(|ui| {
                 for (i, step) in self.steps.iter_mut().enumerate() {
@@ -239,7 +241,7 @@ impl PanelGenerator {
                                 .on_hover_text("Drag this to change step order");
                             let response = ui.interact(response.rect, item_id, Sense::drag());
                             if response.hovered() {
-                                ui.output().cursor_icon = CursorIcon::Grab;
+                                ui.output_mut(|o| o.cursor_icon = CursorIcon::Grab);
                             }
                             if ui.button("⊗").on_hover_text("Delete this step").clicked() {
                                 *to_remove = Some(i);
@@ -372,7 +374,7 @@ impl PanelGenerator {
             action = Some(GeneratorAction::Regen(true, i));
             self.mask_selected = false;
         }
-        if ui.input().pointer.any_released() {
+        if ui.input(|i|i.pointer.any_released()) {
             if let Some(i) = to_move {
                 if i != self.move_to_pos {
                     let step = self.steps.remove(i);

@@ -70,10 +70,10 @@ pub fn gen_hills(
         let radius: f32 = if conf.radius_var == 0.0 {
             hill_min_radius
         } else {
-            rng.gen_range(hill_min_radius, hill_max_radius)
+            rng.random_range(hill_min_radius..hill_max_radius)
         };
-        let xh: f32 = rng.gen_range(0.0, size.0 as f32);
-        let yh: f32 = rng.gen_range(0.0, size.1 as f32);
+        let xh: f32 = rng.random_range(0.0..size.0 as f32);
+        let yh: f32 = rng.random_range(0.0..size.1 as f32);
         let radius2 = radius * radius;
         let coef = conf.height / radius2;
         let minx = (xh - radius).max(0.0) as usize;

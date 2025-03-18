@@ -37,14 +37,14 @@ pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
         ui.add(
             egui::DragValue::new(&mut conf.land_proportion)
                 .speed(0.01)
-                .clamp_range(0.0..=1.0),
+                .range(0.0..=1.0),
         );
         ui.label("water level")
             .on_hover_text("height of the water plane");
         ui.add(
             egui::DragValue::new(&mut conf.water_level)
                 .speed(0.01)
-                .clamp_range(0.0..=1.0),
+                .range(0.0..=1.0),
         );
     });
     ui.horizontal(|ui| {
@@ -53,14 +53,14 @@ pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
         ui.add(
             egui::DragValue::new(&mut conf.plain_factor)
                 .speed(0.01)
-                .clamp_range(1.0..=4.0),
+                .range(1.0..=4.0),
         );
         ui.label("shore height")
             .on_hover_text("lower underwater land by this value");
         ui.add(
             egui::DragValue::new(&mut conf.shore_height)
                 .speed(0.01)
-                .clamp_range(0.0..=0.1),
+                .range(0.0..=0.1),
         );
     });
 }

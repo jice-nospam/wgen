@@ -39,19 +39,19 @@ pub fn render_fbm(ui: &mut egui::Ui, conf: &mut FbmConf) {
         ui.add(
             egui::DragValue::new(&mut conf.mulx)
                 .speed(0.1)
-                .clamp_range(0.0..=100.0),
+                .range(0.0..=100.0),
         );
         ui.label("y");
         ui.add(
             egui::DragValue::new(&mut conf.muly)
                 .speed(0.1)
-                .clamp_range(0.0..=100.0),
+                .range(0.0..=100.0),
         );
         ui.label("octaves");
         ui.add(
             egui::DragValue::new(&mut conf.octaves)
                 .speed(0.5)
-                .clamp_range(1.0..=Fbm::<Perlin>::MAX_OCTAVES as f32),
+                .range(1.0..=Fbm::<Perlin>::MAX_OCTAVES as f32),
         );
     });
     ui.horizontal(|ui| {
@@ -59,19 +59,19 @@ pub fn render_fbm(ui: &mut egui::Ui, conf: &mut FbmConf) {
         ui.add(
             egui::DragValue::new(&mut conf.addx)
                 .speed(0.1)
-                .clamp_range(0.0..=200.0),
+                .range(0.0..=200.0),
         );
         ui.label("y");
         ui.add(
             egui::DragValue::new(&mut conf.addy)
                 .speed(0.1)
-                .clamp_range(0.0..=200.0),
+                .range(0.0..=200.0),
         );
         ui.label("scale");
         ui.add(
             egui::DragValue::new(&mut conf.scale)
                 .speed(0.01)
-                .clamp_range(0.01..=10.0),
+                .range(0.01..=10.0),
         );
     });
 }

@@ -83,7 +83,7 @@ impl Panel3dView {
                 ui.add(
                     egui::DragValue::new(&mut self.conf.hscale)
                         .speed(1.0)
-                        .clamp_range(std::ops::RangeInclusive::new(10.0, 200.0)),
+                        .range(std::ops::RangeInclusive::new(10.0, 200.0)),
                 );
             });
             ui.horizontal(|ui| {
@@ -99,7 +99,7 @@ impl Panel3dView {
                     self.conf.show_water,
                     egui::DragValue::new(&mut self.conf.water_level)
                         .speed(0.1)
-                        .clamp_range(std::ops::RangeInclusive::new(0.0, 100.0)),
+                        .range(std::ops::RangeInclusive::new(0.0, 100.0)),
                 );
                 if old_water_level != self.conf.water_level {
                     self.update_water_level(false, old_water_level);

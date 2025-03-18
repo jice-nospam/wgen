@@ -24,7 +24,7 @@ pub fn render_island(ui: &mut egui::Ui, conf: &mut IslandConf) {
         ui.add(
             egui::DragValue::new(&mut conf.coast_range)
                 .speed(0.1)
-                .clamp_range(0.1..=50.0),
+                .range(0.1..=50.0),
         );
     });
 }

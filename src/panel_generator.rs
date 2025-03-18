@@ -78,14 +78,13 @@ impl Default for PanelGenerator {
 }
 
 fn render_step_gui(ui: &mut egui::Ui, id: Id, body: impl FnOnce(&mut egui::Ui)) -> Option<f32> {
-    
     let is_being_dragged = ui.ctx().is_being_dragged(id);
     if !is_being_dragged {
         ui.scope(body);
     } else {
         let layer_id = LayerId::new(Order::Tooltip, id);
         let response = ui.with_layer_id(layer_id, body).response;
-        ui.output_mut(|i| i.cursor_icon  = CursorIcon::Grabbing);
+        ui.output_mut(|i| i.cursor_icon = CursorIcon::Grabbing);
         if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
             let mut delta = pointer_pos - response.rect.center();
             delta.x += 60.0;
@@ -374,7 +373,7 @@ impl PanelGenerator {
             action = Some(GeneratorAction::Regen(true, i));
             self.mask_selected = false;
         }
-        if ui.input(|i|i.pointer.any_released()) {
+        if ui.input(|i| i.pointer.any_released()) {
             if let Some(i) = to_move {
                 if i != self.move_to_pos {
                     let step = self.steps.remove(i);

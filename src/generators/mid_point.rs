@@ -32,7 +32,7 @@ pub fn render_mid_point(ui: &mut egui::Ui, conf: &mut MidPointConf) {
         ui.add(
             egui::DragValue::new(&mut conf.roughness)
                 .speed(0.01)
-                .clamp_range(0.01..=1.0),
+                .range(0.01..=1.0),
         );
     });
 }

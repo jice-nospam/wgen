@@ -32,13 +32,13 @@ pub fn render_mudslide(ui: &mut egui::Ui, conf: &mut MudSlideConf) {
         ui.add(
             egui::DragValue::new(&mut conf.iterations)
                 .speed(0.5)
-                .clamp_range(1.0..=10.0),
+                .range(1.0..=10.0),
         );
         ui.label("max altitude");
         ui.add(
             egui::DragValue::new(&mut conf.max_erosion_alt)
                 .speed(0.01)
-                .clamp_range(0.0..=1.0),
+                .range(0.0..=1.0),
         );
     });
     ui.horizontal(|ui| {
@@ -46,13 +46,13 @@ pub fn render_mudslide(ui: &mut egui::Ui, conf: &mut MudSlideConf) {
         ui.add(
             egui::DragValue::new(&mut conf.strength)
                 .speed(0.01)
-                .clamp_range(0.0..=1.0),
+                .range(0.0..=1.0),
         );
         ui.label("water level");
         ui.add(
             egui::DragValue::new(&mut conf.water_level)
                 .speed(0.01)
-                .clamp_range(0.0..=1.0),
+                .range(0.0..=1.0),
         );
     });
 }

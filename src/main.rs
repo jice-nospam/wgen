@@ -14,9 +14,8 @@ mod panel_maskedit;
 mod panel_save;
 mod worldgen;
 
-use eframe::egui::accesskit::Vec2;
 use eframe::egui::{self, Visuals};
-use epaint::{emath, Rect};
+use epaint::emath;
 use exporter::export_heightmap;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -69,7 +68,12 @@ fn main() {
         "wgen",
         options,
         Box::new(|_cc| Ok(Box::new(MyApp::default()))),
-    );
+    )
+    .or_else(|e| {
+        eprintln!("Error: {}", e);
+        Ok::<(), ()>(())
+    })
+    .ok();
 }
 
 struct MyApp {
@@ -400,7 +404,7 @@ impl MyApp {
 }
 
 impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let wsize = ctx.input(|i| {
             if let Some(rect) = i.viewport().inner_rect {
                 rect.size()

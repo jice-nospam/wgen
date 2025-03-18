@@ -33,13 +33,13 @@ pub fn render_hills(ui: &mut egui::Ui, conf: &mut HillsConf) {
         ui.add(
             egui::DragValue::new(&mut conf.nb_hill)
                 .speed(1.0)
-                .clamp_range(1.0..=5000.0),
+                .range(1.0..=5000.0),
         );
         ui.label("radius");
         ui.add(
             egui::DragValue::new(&mut conf.base_radius)
                 .speed(1.0)
-                .clamp_range(1.0..=255.0),
+                .range(1.0..=255.0),
         );
     });
     ui.horizontal(|ui| {
@@ -47,7 +47,7 @@ pub fn render_hills(ui: &mut egui::Ui, conf: &mut HillsConf) {
         ui.add(
             egui::DragValue::new(&mut conf.radius_var)
                 .speed(0.01)
-                .clamp_range(0.0..=1.0),
+                .range(0.0..=1.0),
         );
     });
 }

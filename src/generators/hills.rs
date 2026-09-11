@@ -80,12 +80,13 @@ pub fn gen_hills(
         let maxx = (xh + radius).min(size.0 as f32) as usize;
         let miny = (yh - radius).max(0.0) as usize;
         let maxy = (yh + radius).min(size.1 as f32) as usize;
-        for px in minx..maxx {
-            let xdist = (px as f32 - xh).powi(2);
-            for py in miny..maxy {
-                let z = radius2 - xdist - (py as f32 - yh).powi(2);
+        for py in miny..maxy {
+            let ydist = (py as f32 - yh).powi(2);
+            let yoff = py * size.0;
+            for px in minx..maxx {
+                let z = radius2 - (px as f32 - xh).powi(2) - ydist;
                 if z > 0.0 {
-                    hmap[px + py * size.0] += z * coef;
+                    hmap[px + yoff] += z * coef;
                 }
             }
         }
@@ -94,5 +95,27 @@ pub fn gen_hills(
             progress = new_progress;
             report_progress(progress, export, tx.clone());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn hills_are_deterministic_and_never_dig() {
+        let (tx, _) = mpsc::channel();
+        let conf = HillsConf {
+            nb_hill: 20,
+            ..Default::default()
+        };
+        let mut a = vec![0.0; 16 * 16];
+        let mut b = vec![0.0; 16 * 16];
+        gen_hills(3, (16, 16), &mut a, &conf, false, tx.clone(), 1.0);
+        gen_hills(3, (16, 16), &mut b, &conf, false, tx, 1.0);
+        assert_eq!(a, b);
+        assert!(a.iter().all(|&v| v >= 0.0));
+        assert!(a.iter().any(|&v| v > 0.0));
     }
 }

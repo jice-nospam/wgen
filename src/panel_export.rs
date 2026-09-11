@@ -26,13 +26,13 @@ impl std::fmt::Display for ExportFileType {
 #[derive(Clone)]
 pub struct PanelExport {
     /// width of each image in pixels
-    pub export_width: f32,
+    pub export_width: u32,
     /// height of each image in pixels
-    pub export_height: f32,
+    pub export_height: u32,
     /// number of horizontal tiles
-    pub tiles_h: f32,
+    pub tiles_h: u32,
     /// number of vertical tiles
-    pub tiles_v: f32,
+    pub tiles_v: u32,
     /// image filename prefix
     pub file_path: String,
     /// should we repeat the same pixel row on two adjacent tiles ?
@@ -52,10 +52,10 @@ impl Default for PanelExport {
         let cur_dir = std::env::current_dir().unwrap();
         let file_path = format!("{}/wgen", cur_dir.display());
         Self {
-            export_width: 1024.0,
-            export_height: 1024.0,
-            tiles_h: 1.0,
-            tiles_v: 1.0,
+            export_width: 1024,
+            export_height: 1024,
+            tiles_h: 1,
+            tiles_v: 1,
             file_path,
             seamless: false,
             file_type: ExportFileType::PNG,
@@ -78,15 +78,31 @@ impl PanelExport {
         ui.add_enabled_ui(self.enabled, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Tile size");
-                ui.add(egui::DragValue::new(&mut self.export_width).speed(1.0));
+                ui.add(
+                    egui::DragValue::new(&mut self.export_width)
+                        .speed(1.0)
+                        .range(1..=16384),
+                );
                 ui.label(" x ");
-                ui.add(egui::DragValue::new(&mut self.export_height).speed(1.0));
+                ui.add(
+                    egui::DragValue::new(&mut self.export_height)
+                        .speed(1.0)
+                        .range(1..=16384),
+                );
             });
             ui.horizontal(|ui| {
                 ui.label("Tiles");
-                ui.add(egui::DragValue::new(&mut self.tiles_h).speed(1.0));
+                ui.add(
+                    egui::DragValue::new(&mut self.tiles_h)
+                        .speed(1.0)
+                        .range(1..=64),
+                );
                 ui.label(" x ");
-                ui.add(egui::DragValue::new(&mut self.tiles_v).speed(1.0));
+                ui.add(
+                    egui::DragValue::new(&mut self.tiles_v)
+                        .speed(1.0)
+                        .range(1..=64),
+                );
             });
             ui.horizontal(|ui| {
                 ui.label("Export file path");

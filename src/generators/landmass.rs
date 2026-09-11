@@ -96,7 +96,8 @@ pub fn gen_landmass(
         water_cells += height_count[water_level];
         water_level += 1;
     }
-    let new_water_level = water_level as f32 / 255.0;
+    // keep both coefficients finite when every cell ends up on one side of the water level
+    let new_water_level = (water_level as f32 / 255.0).clamp(1.0 / 255.0, 254.0 / 255.0);
     let land_coef = (1.0 - conf.water_level) / (1.0 - new_water_level);
     let water_coef = conf.water_level / new_water_level;
     // water level should be raised/lowered to newWaterLevel
@@ -133,6 +134,26 @@ pub fn gen_landmass(
         if new_progress - progress >= min_progress_step {
             progress = new_progress;
             report_progress(progress, export, tx.clone());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn landmass_stays_finite_at_extreme_land_proportions() {
+        let (tx, _) = mpsc::channel();
+        for land_proportion in [0.0, 1.0] {
+            let conf = LandMassConf {
+                land_proportion,
+                ..Default::default()
+            };
+            let mut h: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
+            gen_landmass((8, 8), &mut h, &conf, false, tx.clone(), 1.0);
+            assert!(h.iter().all(|v| v.is_finite()), "NaN at {}", land_proportion);
         }
     }
 }

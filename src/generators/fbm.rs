@@ -90,10 +90,9 @@ pub fn gen_fbm(
     let mut progress = 0.0;
     let num_threads = num_cpus::get();
     std::thread::scope(|s| {
-        let size_per_job = size.1 / num_threads;
+        // at least one row per job : a small preview on a many-core machine must not get a zero-sized chunk
+        let size_per_job = (size.1 / num_threads).max(1);
         for (i, chunk) in hmap.chunks_mut(size_per_job * size.0).enumerate() {
-            // FIXME: Why was this here
-            // let i = i;
             let fbm = Fbm::<Perlin>::new(seed as u32).set_octaves(conf.octaves as usize);
             let tx = tx.clone();
             s.spawn(move || {
@@ -120,4 +119,22 @@ pub fn gen_fbm(
             });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn fbm_is_deterministic_and_handles_tiny_maps() {
+        let (tx, _) = mpsc::channel();
+        let conf = FbmConf::default();
+        let mut a = vec![0.0; 8 * 2];
+        let mut b = vec![0.0; 8 * 2];
+        gen_fbm(7, (8, 2), &mut a, &conf, false, tx.clone(), 1.0);
+        gen_fbm(7, (8, 2), &mut b, &conf, false, tx, 1.0);
+        assert_eq!(a, b);
+        assert!(a.iter().all(|v| v.is_finite()));
+    }
 }

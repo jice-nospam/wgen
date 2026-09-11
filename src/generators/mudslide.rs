@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ThreadMessage;
 
-use super::{report_progress, vec_get_safe, DIRX, DIRY};
+use super::{report_progress, DIRX, DIRY};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct MudSlideConf {
@@ -59,35 +59,42 @@ pub fn render_mudslide(ui: &mut egui::Ui, conf: &mut MudSlideConf) {
 
 pub fn gen_mudslide(
     size: (usize, usize),
-    hmap: &mut Vec<f32>,
+    hmap: &mut [f32],
     conf: &MudSlideConf,
     export: bool,
     tx: Sender<ThreadMessage>,
     min_progress_step: f32,
 ) {
+    let mut scratch = vec![0.0; size.0 * size.1];
+    let mut progress = 0.0;
+    let mut report = |new_progress: f32| {
+        if new_progress - progress >= min_progress_step {
+            progress = new_progress;
+            report_progress(progress, export, tx.clone());
+        }
+    };
     for i in 0..conf.iterations as usize {
-        mudslide(size, hmap, i, conf, export, tx.clone(), min_progress_step);
+        mudslide(size, hmap, &mut scratch, conf, i, &mut report);
+        hmap.copy_from_slice(&scratch);
     }
 }
 
+/// one smoothing pass, reading `hmap` and writing `out`
 fn mudslide(
     size: (usize, usize),
-    hmap: &mut Vec<f32>,
-    iteration: usize,
+    hmap: &[f32],
+    out: &mut [f32],
     conf: &MudSlideConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
+    iteration: usize,
+    report: &mut dyn FnMut(f32),
 ) {
     let sand_coef = 1.0 / (1.0 - conf.water_level);
-    let mut new_hmap = vec![0.0; size.0 * size.1];
-    let mut progress = 0.0;
     for y in 0..size.1 {
         let yoff = y * size.0;
         for x in 0..size.0 {
-            let h = vec_get_safe(hmap, x + yoff);
+            let h = hmap[x + yoff];
             if h < conf.water_level - 0.01 || h >= conf.max_erosion_alt {
-                new_hmap[x + y * size.0] = h;
+                out[x + yoff] = h;
                 continue;
             }
             let mut sum_delta1 = 0.0;
@@ -98,7 +105,7 @@ fn mudslide(
                 let ix = (x as i32 + DIRX[i]) as usize;
                 let iy = (y as i32 + DIRY[i]) as usize;
                 if ix < size.0 && iy < size.1 {
-                    let ih = vec_get_safe(hmap, ix + iy * size.0);
+                    let ih = hmap[ix + iy * size.0];
                     if ih < h {
                         if i == 1 || i == 3 || i == 6 || i == 8 {
                             // diagonal neighbour
@@ -117,14 +124,31 @@ fn mudslide(
             dh *= conf.strength;
             let hcoef = (h - conf.water_level) * sand_coef;
             dh *= 1.0 - hcoef * hcoef * hcoef; // less smoothing at high altitudes
-            new_hmap[x + y * size.0] = h + dh;
+            out[x + yoff] = h + dh;
         }
-        let new_progress = iteration as f32 / conf.iterations as f32
-            + (y as f32 / size.1 as f32) / conf.iterations as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
-        }
+        report(
+            iteration as f32 / conf.iterations as f32
+                + (y as f32 / size.1 as f32) / conf.iterations as f32,
+        );
     }
-    *hmap = new_hmap;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn mudslide_is_deterministic_and_keeps_a_flat_map_flat() {
+        let (tx, _) = mpsc::channel();
+        let conf = MudSlideConf::default();
+        let mut flat = vec![0.5; 8 * 8];
+        gen_mudslide((8, 8), &mut flat, &conf, false, tx.clone(), 1.0);
+        assert!(flat.iter().all(|&v| v == 0.5));
+        let mut a: Vec<f32> = (0..64).map(|i| ((i * 7) % 11) as f32 / 11.0).collect();
+        let mut b = a.clone();
+        gen_mudslide((8, 8), &mut a, &conf, false, tx.clone(), 1.0);
+        gen_mudslide((8, 8), &mut b, &conf, false, tx, 1.0);
+        assert_eq!(a, b);
+    }
 }

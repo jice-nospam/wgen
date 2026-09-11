@@ -73,6 +73,10 @@ impl Panel3dView {
             ..Default::default()
         }
     }
+    /// canvas size in pixels; the mesh is kept
+    pub fn set_size(&mut self, size: f32) {
+        self.size = size;
+    }
     pub fn render(&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
@@ -128,6 +132,7 @@ impl Panel3dView {
         let size = hmap.get_size();
         self.mesh_data.size = size;
         self.mesh_data.vertices = Vec::with_capacity(size.0 * size.1);
+        self.mesh_data.uv = Vec::with_capacity(size.0 * size.1);
         let grid_size = (XY_SCALE / size.0 as f32, XY_SCALE / size.1 as f32);
         let off_x = -0.5 * grid_size.0 * size.0 as f32;
         let off_y = -0.5 * grid_size.1 * size.1 as f32;

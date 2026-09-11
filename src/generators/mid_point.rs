@@ -40,7 +40,7 @@ pub fn render_mid_point(ui: &mut egui::Ui, conf: &mut MidPointConf) {
 pub fn gen_mid_point(
     seed: u64,
     size: (usize, usize),
-    hmap: &mut Vec<f32>,
+    hmap: &mut [f32],
     conf: &MidPointConf,
     export: bool,
     tx: Sender<ThreadMessage>,
@@ -77,7 +77,7 @@ fn check_progress(track: &mut ProgressTracking, size: (usize, usize), tx: Sender
 }
 
 pub fn diamond_square(
-    hmap: &mut Vec<f32>,
+    hmap: &mut [f32],
     rng: &mut StdRng,
     size: (usize, usize),
     cur_size: usize,

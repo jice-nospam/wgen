@@ -23,19 +23,13 @@ use crate::ThreadMessage;
 const DIRX: [i32; 9] = [0, -1, 0, 1, -1, 1, -1, 0, 1];
 const DIRY: [i32; 9] = [0, -1, -1, -1, 0, 0, 1, 1, 1];
 
-pub fn vec_get_safe<T>(v: &Vec<T>, off: usize) -> T
-where
-    T: Default + Copy,
-{
-    if off < v.len() {
-        return v[off];
-    }
-    T::default()
-}
-
+/// (min, max) of a map; (0, 0) for an empty one
 pub fn get_min_max(v: &[f32]) -> (f32, f32) {
-    let mut min = v[0];
-    let mut max = v[0];
+    let Some(&first) = v.first() else {
+        return (0.0, 0.0);
+    };
+    let mut min = first;
+    let mut max = first;
     for val in v.iter().skip(1) {
         if *val > max {
             max = *val;
@@ -109,12 +103,22 @@ pub fn _interpolate(v: &[f32], x: f32, y: f32, size: (usize, usize)) -> f32 {
     (1.0 - dy) * val_n + dy * val_s
 }
 
+/// a closed channel (main thread gone, or a headless test) is not an error for a generator
 fn report_progress(progress: f32, export: bool, tx: Sender<ThreadMessage>) {
-    if export {
+    let _ = if export {
         tx.send(ThreadMessage::ExporterStepProgress(progress))
-            .unwrap();
     } else {
         tx.send(ThreadMessage::GeneratorStepProgress(progress))
-            .unwrap();
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn min_max_of_empty_map_is_zero() {
+        assert_eq!(get_min_max(&[]), (0.0, 0.0));
+        assert_eq!(get_min_max(&[2.0, -1.0, 0.5]), (-1.0, 2.0));
     }
 }

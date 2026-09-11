@@ -17,9 +17,12 @@ mod worldgen;
 use eframe::egui::{self, Visuals};
 use epaint::emath;
 use exporter::export_heightmap;
+use std::any::Any;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::OnceLock;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use panel_2dview::{Panel2dAction, Panel2dView};
 use panel_3dview::Panel3dView;
@@ -33,14 +36,16 @@ pub const MASK_SIZE: usize = 64;
 
 /// messages sent to the main thread by either world generator or exporter threads
 pub enum ThreadMessage {
-    /// from world generator : all steps have been computed => update 2D/3D previews
-    GeneratorDone(ExportMap),
+    /// from world generator : all steps of this generation have been computed => update 2D/3D previews
+    GeneratorDone(u64, ExportMap),
     /// from world generator : update progress bar
     GeneratorStepProgress(f32),
-    /// from world generator : one step has been computed => update 2D preview if live preview enabled
-    GeneratorStepDone(usize, Option<ExportMap>),
-    /// from world generator : return the heightmap for a specific step
-    GeneratorStepMap(usize, ExportMap),
+    /// from world generator : one step of this generation has been computed => update 2D preview if live preview enabled
+    GeneratorStepDone(u64, usize, Option<ExportMap>),
+    /// from world generator : the heightmap of a specific step, tagged with the generation that asked for it
+    GeneratorStepMap(u64, usize, ExportMap),
+    /// from world generator : a step panicked, the generation is abandoned
+    GeneratorError(String),
     /// from exporter : one step has been computed
     ExporterStepDone(usize),
     /// from exporter : export is finished
@@ -58,16 +63,16 @@ fn main() {
         viewport: egui::ViewportBuilder::default().with_maximized(true),
         ..Default::default()
     };
-    println!(
+    log(&format!(
         "wgen v{} - {} cpus {} cores",
         VERSION,
         num_cpus::get(),
         num_cpus::get_physical()
-    );
+    ));
     eframe::run_native(
         "wgen",
         options,
-        Box::new(|_cc| Ok(Box::new(MyApp::default()))),
+        Box::new(|cc| Ok(Box::new(MyApp::new(cc)))),
     )
     .or_else(|e| {
         eprintln!("Error: {}", e);
@@ -91,6 +96,10 @@ struct MyApp {
     exporter_cur_step: usize,
     /// random number generator's seed
     seed: u64,
+    /// bumped by every `regen`; generator messages tagged with an older value are stale and dropped
+    generation: u64,
+    /// labels of the steps being exported, captured when the export started
+    export_step_names: Vec<String>,
     // ui widgets
     gen_panel: PanelGenerator,
     export_panel: PanelExport,
@@ -112,8 +121,8 @@ struct MyApp {
     last_mask_updated: f64,
 }
 
-impl Default for MyApp {
-    fn default() -> Self {
+impl MyApp {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let preview_size = 128;
         let image_size = 790; //368;
         let seed = 0xdeadbeef;
@@ -124,13 +133,16 @@ impl Default for MyApp {
         // main -> generator channel
         let (main2gen_tx, gen_rx) = mpsc::channel();
         let gen_tx = exp2main_tx.clone();
+        let ctx = cc.egui_ctx.clone();
         thread::spawn(move || {
-            generator_thread(seed, preview_size, gen_rx, gen_tx);
+            generator_thread(seed, preview_size, gen_rx, gen_tx, ctx);
         });
         Self {
             image_size,
             preview_size,
             seed,
+            generation: 0,
+            export_step_names: Vec::new(),
             panel_2d,
             panel_3d: Panel3dView::new(image_size as f32),
             progress: 1.0,
@@ -153,17 +165,23 @@ impl Default for MyApp {
 impl MyApp {
     fn export(&mut self) {
         let steps = self.gen_panel.steps.clone();
+        self.export_step_names = steps.iter().map(|s| s.to_string()).collect();
         let export_panel = self.export_panel.clone();
         let seed = self.seed;
         let tx = self.exp2main_tx.clone();
         let min_progress_step = 0.01 * self.gen_panel.enabled_steps() as f32;
         thread::spawn(move || {
-            let res = export_heightmap(seed, &steps, &export_panel, tx.clone(), min_progress_step);
-            tx.send(ThreadMessage::ExporterDone(res)).unwrap();
+            // a panic must still end the export, or the export panel stays disabled forever
+            let res = catch_unwind(AssertUnwindSafe(|| {
+                export_heightmap(seed, &steps, &export_panel, tx.clone(), min_progress_step)
+            }))
+            .unwrap_or_else(|payload| Err(panic_message(payload.as_ref())));
+            let _ = tx.send(ThreadMessage::ExporterDone(res));
         });
     }
+    /// the single entry point to recompute the stack from a step; every edit routes through it
     fn regen(&mut self, must_delete: bool, from_idx: usize) {
-        self.progress = from_idx as f32 / self.gen_panel.enabled_steps() as f32;
+        self.generation += 1;
         self.main2wgen_tx
             .send(WorldGenCommand::Abort(from_idx))
             .unwrap();
@@ -174,15 +192,21 @@ impl MyApp {
                 .unwrap();
         }
         if len == 0 {
+            // nothing to run : no GeneratorDone will come back for this generation
+            self.gen_panel.is_running = false;
+            self.progress = 1.0;
             return;
         }
+        let enabled = self.gen_panel.enabled_steps().max(1) as f32;
+        self.progress = from_idx as f32 / enabled;
         for i in from_idx.min(len - 1)..len {
             self.main2wgen_tx
                 .send(WorldGenCommand::ExecuteStep(
+                    self.generation,
                     i,
                     self.gen_panel.steps[i].clone(),
                     self.panel_2d.live_preview,
-                    0.01 * self.gen_panel.enabled_steps() as f32,
+                    0.01 * enabled,
                 ))
                 .unwrap();
         }
@@ -227,7 +251,7 @@ impl MyApp {
                             self.load_save_panel.get_file_path(),
                             msg
                         );
-                        println!("{}", err_msg);
+                        log(&err_msg);
                         self.err_msg = Some(err_msg);
                     } else {
                         self.main2wgen_tx.send(WorldGenCommand::Clear).unwrap();
@@ -241,7 +265,7 @@ impl MyApp {
                             self.load_save_panel.get_file_path(),
                             msg
                         );
-                        println!("{}", err_msg);
+                        log(&err_msg);
                         self.err_msg = Some(err_msg);
                     }
                 }
@@ -251,7 +275,12 @@ impl MyApp {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 match self.gen_panel.render(ui, self.progress) {
                     Some(GeneratorAction::Clear) => {
+                        // drop queued steps too; the running one finishes and its result is stale
+                        self.generation += 1;
+                        self.main2wgen_tx.send(WorldGenCommand::Abort(0)).unwrap();
                         self.main2wgen_tx.send(WorldGenCommand::Clear).unwrap();
+                        self.gen_panel.is_running = false;
+                        self.progress = 1.0;
                     }
                     Some(GeneratorAction::SetSeed(new_seed)) => {
                         self.set_seed(new_seed);
@@ -259,21 +288,13 @@ impl MyApp {
                     Some(GeneratorAction::Regen(must_delete, from_idx)) => {
                         self.regen(must_delete, from_idx);
                     }
-                    Some(GeneratorAction::Disable(idx)) => {
-                        self.main2wgen_tx
-                            .send(WorldGenCommand::DisableStep(idx))
-                            .unwrap();
-                        self.regen(false, idx);
-                    }
-                    Some(GeneratorAction::Enable(idx)) => {
-                        self.main2wgen_tx
-                            .send(WorldGenCommand::EnableStep(idx))
-                            .unwrap();
+                    Some(GeneratorAction::Disable(idx)) | Some(GeneratorAction::Enable(idx)) => {
+                        // the step is re-sent with its new `disabled` flag
                         self.regen(false, idx);
                     }
                     Some(GeneratorAction::DisplayLayer(step)) => {
                         self.main2wgen_tx
-                            .send(WorldGenCommand::GetStepMap(step))
+                            .send(WorldGenCommand::GetStepMap(self.generation, step))
                             .unwrap();
                     }
                     Some(GeneratorAction::DisplayMask(step)) => {
@@ -308,7 +329,9 @@ impl MyApp {
                         }
                         Some(Panel2dAction::MaskDelete) => {
                             if let Some(step) = self.mask_step {
-                                self.gen_panel.steps[step].mask = None;
+                                if let Some(step) = self.gen_panel.steps.get_mut(step) {
+                                    step.mask = None;
+                                }
                             }
                             self.last_mask_updated = 0.0;
                         }
@@ -323,31 +346,46 @@ impl MyApp {
         });
     }
     fn handle_threads_messages(&mut self) {
-        match self.thread2main_rx.try_recv() {
-            Ok(ThreadMessage::GeneratorStepProgress(progress)) => {
-                let progstep = 1.0 / self.gen_panel.enabled_steps() as f32;
+        while let Ok(msg) = self.thread2main_rx.try_recv() {
+            self.handle_thread_message(msg);
+        }
+    }
+    fn handle_thread_message(&mut self, msg: ThreadMessage) {
+        match msg {
+            ThreadMessage::GeneratorStepProgress(progress) => {
+                let progstep = 1.0 / self.gen_panel.enabled_steps().max(1) as f32;
                 self.progress = (self.progress / progstep).floor() * progstep;
                 self.progress += progress * progstep;
             }
-            Ok(ThreadMessage::GeneratorDone(hmap)) => {
+            ThreadMessage::GeneratorDone(generation, hmap) => {
+                if generation != self.generation {
+                    return;
+                }
                 log("main<=Done");
                 self.panel_2d
                     .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
-                self.gen_panel.selected_step = self.gen_panel.steps.len() - 1;
+                self.gen_panel.selected_step = self.gen_panel.steps.len().saturating_sub(1);
                 self.panel_3d.update_mesh(&hmap);
                 self.gen_panel.is_running = false;
                 self.progress = 1.0;
             }
-            Ok(ThreadMessage::GeneratorStepDone(step, hmap)) => {
+            ThreadMessage::GeneratorStepDone(generation, step, hmap) => {
+                if generation != self.generation {
+                    return;
+                }
                 log(&format!("main<=GeneratorStepDone({})", step));
                 if let Some(ref hmap) = hmap {
                     self.panel_2d
                         .refresh(self.image_size, self.preview_size as u32, Some(hmap));
                 }
-                self.gen_panel.selected_step = step;
-                self.progress = (step + 1) as f32 / self.gen_panel.enabled_steps() as f32
+                self.gen_panel.selected_step =
+                    step.min(self.gen_panel.steps.len().saturating_sub(1));
+                self.progress = (step + 1) as f32 / self.gen_panel.enabled_steps().max(1) as f32
             }
-            Ok(ThreadMessage::GeneratorStepMap(_idx, hmap)) => {
+            ThreadMessage::GeneratorStepMap(generation, _idx, hmap) => {
+                if generation != self.generation {
+                    return;
+                }
                 // display heightmap from a specific step in the 2d preview
                 if let Some(step) = self.mask_step {
                     // mask was updated, recompute terrain
@@ -357,39 +395,34 @@ impl MyApp {
                 self.panel_2d
                     .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
             }
-            Ok(ThreadMessage::ExporterStepProgress(progress)) => {
-                let progstep = 1.0 / self.gen_panel.enabled_steps() as f32;
+            ThreadMessage::GeneratorError(msg) => {
+                let err_msg = format!("Error while generating heightmap : {}", msg);
+                log(&err_msg);
+                self.err_msg = Some(err_msg);
+                self.gen_panel.is_running = false;
+                self.progress = 1.0;
+            }
+            ThreadMessage::ExporterStepProgress(progress) => {
+                let progstep = 1.0 / self.export_step_names.len().max(1) as f32;
                 self.exporter_progress = (self.exporter_progress / progstep).floor() * progstep;
                 self.exporter_progress += progress * progstep;
-                self.exporter_text = format!(
-                    "{}% {}/{} {}",
-                    (self.exporter_progress * 100.0) as usize,
-                    self.exporter_cur_step + 1,
-                    self.gen_panel.steps.len(),
-                    self.gen_panel.steps[self.exporter_cur_step]
-                );
+                self.exporter_text = self.export_progress_text();
             }
-            Ok(ThreadMessage::ExporterStepDone(step)) => {
+            ThreadMessage::ExporterStepDone(step) => {
                 log(&format!("main<=ExporterStepDone({})", step));
-                self.exporter_progress = (step + 1) as f32 / self.gen_panel.enabled_steps() as f32;
+                self.exporter_progress =
+                    (step + 1) as f32 / self.export_step_names.len().max(1) as f32;
                 self.exporter_cur_step = step + 1;
-                if step + 1 == self.gen_panel.steps.len() {
-                    self.exporter_text =
-                        format!("Saving {}...", self.export_panel.file_type.to_string());
+                if step + 1 >= self.export_step_names.len() {
+                    self.exporter_text = format!("Saving {}...", self.export_panel.file_type);
                 } else {
-                    self.exporter_text = format!(
-                        "{}% {}/{} {}",
-                        (self.exporter_progress * 100.0) as usize,
-                        step + 1,
-                        self.gen_panel.steps.len(),
-                        self.gen_panel.steps[self.exporter_cur_step]
-                    );
+                    self.exporter_text = self.export_progress_text();
                 }
             }
-            Ok(ThreadMessage::ExporterDone(res)) => {
+            ThreadMessage::ExporterDone(res) => {
                 if let Err(msg) = res {
                     let err_msg = format!("Error while exporting heightmap : {}", msg);
-                    println!("{}", err_msg);
+                    log(&err_msg);
                     self.err_msg = Some(err_msg);
                 }
                 log("main<=ExporterDone");
@@ -397,9 +430,23 @@ impl MyApp {
                 self.export_panel.enabled = true;
                 self.exporter_cur_step = 0;
                 self.exporter_text = String::new();
+                self.export_step_names.clear();
             }
-            Err(_) => {}
         }
+    }
+    /// progress bar text during export, from the step list captured when the export started
+    fn export_progress_text(&self) -> String {
+        let name = self
+            .export_step_names
+            .get(self.exporter_cur_step)
+            .map_or("", String::as_str);
+        format!(
+            "{}% {}/{} {}",
+            (self.exporter_progress * 100.0) as usize,
+            self.exporter_cur_step + 1,
+            self.export_step_names.len(),
+            name
+        )
     }
 }
 
@@ -414,22 +461,27 @@ impl eframe::App for MyApp {
         });
         let new_size = ((wsize.x - 340.0) * 0.5) as usize;
         if new_size != self.image_size && new_size != 0 {
-            // handle window resizing
+            // handle window resizing : both previews keep their data and only change size
             self.image_size = new_size;
             self.panel_2d
                 .refresh(self.image_size, self.preview_size as u32, None);
-            self.panel_3d = Panel3dView::new(self.image_size as f32);
-            self.regen(false, 0);
+            self.panel_3d.set_size(self.image_size as f32);
         }
         ctx.set_visuals(Visuals::dark());
         self.handle_threads_messages();
+        if self.gen_panel.is_running || !self.export_panel.enabled {
+            // poll the channel while a worker thread runs, whatever widgets are on screen
+            ctx.request_repaint_after(Duration::from_millis(100));
+        }
         self.render_left_panel(ctx);
         self.render_central_panel(ctx);
         if self.last_mask_updated > 0.0 && ctx.input(|i| i.time) - self.last_mask_updated >= 0.5 {
             if let Some(step) = self.mask_step {
-                // mask was updated, copy mask to generator step
-                if let Some(mask) = self.panel_2d.get_current_mask() {
-                    self.gen_panel.steps[step].mask = Some(mask);
+                // mask was updated, copy mask to generator step (which may have been deleted since)
+                if let Some(step) = self.gen_panel.steps.get_mut(step) {
+                    if let Some(mask) = self.panel_2d.get_current_mask() {
+                        step.mask = Some(mask);
+                    }
                 }
             }
             self.last_mask_updated = 0.0;
@@ -455,15 +507,20 @@ impl eframe::App for MyApp {
     }
 }
 
+/// timestamped stdout log; the clock starts at the first call, on any thread
 pub fn log(msg: &str) {
-    thread_local! {
-        pub static LOGTIME: Instant = Instant::now();
+    static LOGTIME: OnceLock<Instant> = OnceLock::new();
+    let elapsed = LOGTIME.get_or_init(Instant::now).elapsed();
+    println!("{:03.3} {}", elapsed.as_millis() as f32 / 1000.0, msg);
+}
+
+/// the text of a panic payload, for error popups
+pub fn panic_message(payload: &(dyn Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_owned()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".to_owned()
     }
-    LOGTIME.with(|log_time| {
-        println!(
-            "{:03.3} {}",
-            log_time.elapsed().as_millis() as f32 / 1000.0,
-            msg
-        );
-    });
 }

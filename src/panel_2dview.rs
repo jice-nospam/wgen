@@ -31,6 +31,8 @@ pub struct Panel2dView {
     fps_counter: FpsCounter,
     /// egui renderable image
     ui_img: Option<RetainedImage>,
+    /// last heightmap displayed, re-rendered when the canvas size changes
+    last_hmap: Option<ExportMap>,
     /// mask editor subpanel
     mask_editor: PanelMaskEdit,
 }
@@ -47,6 +49,7 @@ impl Panel2dView {
             preview_size: preview_size as usize,
             fps_counter: FpsCounter::default(),
             ui_img: None,
+            last_hmap: None,
             mask_editor: PanelMaskEdit::new(image_size),
         };
         panel.refresh(image_size, preview_size, Some(hmap));
@@ -69,6 +72,9 @@ impl Panel2dView {
             self.img = ColorImage::new([self.image_size, self.image_size], Color32::BLACK);
         }
         if let Some(hmap) = hmap {
+            self.last_hmap = Some(hmap.clone());
+        }
+        if let Some(hmap) = &self.last_hmap {
             let (min, max) = hmap.get_min_max();
             let coef = if max - min > std::f32::EPSILON {
                 1.0 / (max - min)

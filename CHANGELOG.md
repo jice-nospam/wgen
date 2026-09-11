@@ -2,7 +2,23 @@
 
 ## [0.4.0] - Unreleased
 
+### Fixed
+
+- crashes when editing the step list (add, delete, clear, enable, resize the window) while the
+  generator is still computing, and when editing steps during an export
+- a panic inside a generator or the exporter now shows an error popup instead of killing the app
+  (or leaving the export panel disabled forever)
+- the previews refresh as soon as a step is computed, without waiting for mouse input
+- resizing the window no longer recomputes the terrain
+- LandMass produced NaN heights at land proportion 0 or 1
+- export tile size and tile count are now integers with a valid range
+- memory leak in the 3D preview (one uv buffer per regeneration)
+
 ### Changed
+
+- the export computes the stack on a single heightmap instead of one per step (memory ÷ steps)
+- hills are generated row by row (faster at export sizes)
+- log timestamps share one clock across threads
 
 - exports to single channel EXR (slightly smaller files)
 - upgraded to egui 0.29, three_d 0.18

@@ -23,8 +23,8 @@ pub fn export_heightmap(
     let mut wgen = WorldGenerator::new(
         seed,
         (
-            (export_data.export_width * export_data.tiles_h) as usize,
-            (export_data.export_height * export_data.tiles_v) as usize,
+            file_width * export_data.tiles_h as usize,
+            file_height * export_data.tiles_v as usize,
         ),
     );
     wgen.generate(steps, tx, min_progress_step);

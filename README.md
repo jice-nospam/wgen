@@ -39,6 +39,7 @@ The current version features those generators :
 ## Masks
 You can add a mask to a generator step by clicking the square next to the generator name.
 You can then edit the mask using a painting brush. The generator effect will be scaled depending on the mask color.
+The terrain is recomputed with the new mask as soon as you leave the mask editor (by clicking a step name, `Refresh`, or any other change to the step list).
 ![Masks UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_masks.jpg)
 
 ## Terrain preview
@@ -57,7 +58,8 @@ You can also display a water plane with configurable height and a grid to help v
 ![3D preview UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_3d.jpg)
 
 ## Save/Load project
-Here you can save the current generator configuration (all the steps with their parameters) in a plain text file using RON format. You can also load a previously saved project, erasing the current configuration.
+Here you can save the current generator configuration (all the steps with their parameters and masks) in a plain text file using RON format. You can also load a previously saved project, erasing the current configuration.
+Projects saved by an older version of wgen still load; a project saved by a newer version is refused.
 
 ![Save project UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_project.jpg)
 

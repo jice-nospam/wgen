@@ -1,10 +1,5 @@
 use eframe::egui::{self, CursorIcon, Id, LayerId, Order, Sense};
 use epaint::Color32;
-use serde::{Deserialize, Serialize};
-use std::{
-    fs::File,
-    io::{Read, Write},
-};
 
 use crate::{
     generators::{
@@ -12,44 +7,38 @@ use crate::{
         render_mudslide, render_water_erosion, FbmConf, HillsConf, IslandConf, LandMassConf,
         MidPointConf, MudSlideConf, NormalizeConf, WaterErosionConf,
     },
+    project::Project,
     worldgen::{Step, StepType},
-    VERSION,
+    MASK_SIZE,
 };
 
 /// actions to do by the main program
 pub enum GeneratorAction {
-    /// recompute heightmap from a specific step (deleteStep, stepIndex)
-    Regen(bool, usize),
-    /// disable a step and recompute the heightmap
-    Disable(usize),
-    /// enable a step and recompute the heightmap
-    Enable(usize),
+    /// recompute the heightmap from step `from`, after removing step `delete` from the generator
+    Regen { delete: Option<usize>, from: usize },
     /// display a specific step heightmap in the 2D preview
     DisplayLayer(usize),
-    /// display a specific step mask in the 2D preview
-    DisplayMask(usize),
+    /// edit this mask in the 2D preview (a full mask when the step has none yet)
+    DisplayMask(Vec<f32>),
     /// change the RNG seed
     SetSeed(u64),
     /// remove all steps
     Clear,
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct PanelGenerator {
-    /// to avoid loading a save from another version
-    version: String,
-    #[serde(skip)]
     /// is the world generator currently computing the heightmap?
     pub is_running: bool,
-    #[serde(skip)]
-    /// are we currently displaying a mask or a heightmap ?
-    pub mask_selected: bool,
     /// generator steps with their configuration and masks
     pub steps: Vec<Step>,
     /// current selected step. used for combo box. must be outside of steps in case steps is empty
     cur_step: Step,
     /// current selected step index
     pub selected_step: usize,
+    /// step whose mask is being painted in the 2D preview, if any
+    mask_step: Option<usize>,
+    /// step whose mask changed since the last recompute; recomputed once mask editing ends
+    mask_dirty: Option<usize>,
     /// current drag n drop destination
     move_to_pos: usize,
     /// is the drag n drop zone currently hovered by the mouse cursor?
@@ -61,15 +50,15 @@ pub struct PanelGenerator {
 impl Default for PanelGenerator {
     fn default() -> Self {
         Self {
-            version: VERSION.to_owned(),
             is_running: false,
-            mask_selected: false,
             steps: Vec::new(),
             cur_step: Step {
                 typ: StepType::Hills(HillsConf::default()),
                 ..Default::default()
             },
             selected_step: 0,
+            mask_step: None,
+            mask_dirty: None,
             move_to_pos: 0,
             hovered: false,
             seed: 0xdeadbeef,
@@ -99,6 +88,38 @@ impl PanelGenerator {
     pub fn enabled_steps(&self) -> usize {
         self.steps.iter().filter(|s| !s.disabled).count()
     }
+    pub fn is_editing_mask(&self) -> bool {
+        self.mask_step.is_some()
+    }
+    /// ends mask editing without recomputing anything : the caller recomputes the whole stack
+    pub fn exit_mask_mode(&mut self) {
+        self.mask_step = None;
+        self.mask_dirty = None;
+    }
+    /// stores a painted mask on the step being edited
+    pub fn commit_mask(&mut self, mask: Vec<f32>) {
+        self.set_mask(Some(mask));
+    }
+    /// removes the mask of the step being edited
+    pub fn delete_mask(&mut self) {
+        self.set_mask(None);
+    }
+    fn set_mask(&mut self, mask: Option<Vec<f32>>) {
+        let Some(i) = self.mask_step else { return };
+        if let Some(step) = self.steps.get_mut(i) {
+            step.mask = mask;
+            self.mask_dirty = Some(i);
+        }
+    }
+    pub fn load_project(&mut self, project: Project) {
+        self.steps = project.steps;
+        self.seed = project.seed;
+        self.selected_step = 0;
+        self.exit_mask_mode();
+    }
+    pub fn project(&self) -> Project {
+        Project::new(self.seed, self.steps.clone())
+    }
     fn render_header(&mut self, ui: &mut egui::Ui, progress: f32) -> Option<GeneratorAction> {
         let mut action = None;
         ui.horizontal(|ui| {
@@ -111,6 +132,8 @@ impl PanelGenerator {
         ui.horizontal(|ui| {
             if ui.button("Clear").clicked() {
                 self.steps.clear();
+                self.selected_step = 0;
+                self.exit_mask_mode();
                 action = Some(GeneratorAction::Clear)
             }
             ui.label("Seed");
@@ -132,7 +155,11 @@ impl PanelGenerator {
             if ui.button("New step").clicked() {
                 self.steps.push(self.cur_step.clone());
                 self.selected_step = self.steps.len() - 1;
-                action = Some(GeneratorAction::Regen(false, self.selected_step))
+                self.mask_step = None;
+                action = Some(GeneratorAction::Regen {
+                    delete: None,
+                    from: self.selected_step,
+                })
             }
             egui::ComboBox::from_label("")
                 .selected_text(format!("{}", self.cur_step))
@@ -259,29 +286,32 @@ impl PanelGenerator {
                                 .clicked()
                             {
                                 step.disabled = !step.disabled;
-                                if step.disabled {
-                                    action = Some(GeneratorAction::Disable(i));
-                                } else {
-                                    action = Some(GeneratorAction::Enable(i));
-                                }
+                                self.mask_step = None;
+                                action = Some(GeneratorAction::Regen {
+                                    delete: None,
+                                    from: i,
+                                });
                             }
                             if ui
-                                .button(if step.mask.is_none() { "⬜" } else { "⬛" })
-                                .on_hover_text("Add a mask to this step")
+                                .selectable_label(
+                                    self.mask_step == Some(i),
+                                    if step.mask.is_none() { "⬜" } else { "⬛" },
+                                )
+                                .on_hover_text("Edit this step's mask")
                                 .clicked()
                             {
-                                self.mask_selected = true;
+                                self.mask_step = Some(i);
                                 self.selected_step = i;
                             }
                             if ui
                                 .selectable_label(
-                                    self.selected_step == i && !self.mask_selected,
+                                    self.selected_step == i && self.mask_step.is_none(),
                                     step.to_string(),
                                 )
                                 .clicked()
                             {
                                 self.selected_step = i;
-                                self.mask_selected = false;
+                                self.mask_step = None;
                             }
                         });
                     }) {
@@ -298,7 +328,8 @@ impl PanelGenerator {
     /// render the configuration UI for currently selected step
     fn render_curstep_conf(&mut self, ui: &mut egui::Ui) -> Option<GeneratorAction> {
         let mut action = None;
-        match &mut self.steps[self.selected_step] {
+        let step = self.steps.get_mut(self.selected_step)?;
+        match step {
             Step {
                 typ: StepType::Hills(conf),
                 ..
@@ -333,14 +364,17 @@ impl PanelGenerator {
             } => (),
         }
         if ui.button("Refresh").clicked() {
-            action = Some(GeneratorAction::Regen(false, self.selected_step));
-            self.mask_selected = false;
+            action = Some(GeneratorAction::Regen {
+                delete: None,
+                from: self.selected_step,
+            });
+            self.mask_step = None;
         }
         action
     }
     pub fn render(&mut self, ui: &mut egui::Ui, progress: f32) -> Option<GeneratorAction> {
         let previous_selected_step = self.selected_step;
-        let previous_mask_selected = self.mask_selected;
+        let previous_mask_step = self.mask_step;
         let mut action = self.render_header(ui, progress);
         action = action.or(self.render_new_step(ui));
         ui.end_row();
@@ -348,30 +382,30 @@ impl PanelGenerator {
         let mut to_move = None;
         action = action.or(self.render_step_list(ui, &mut to_remove, &mut to_move));
         ui.separator();
-        if !self.steps.is_empty() {
-            action = action.or(self.render_curstep_conf(ui));
-        }
+        action = action.or(self.render_curstep_conf(ui));
         if action.is_none()
             && (previous_selected_step != self.selected_step
-                || previous_mask_selected != self.mask_selected)
+                || previous_mask_step != self.mask_step)
         {
-            if self.mask_selected {
-                action = Some(GeneratorAction::DisplayMask(self.selected_step));
-            } else {
-                action = Some(GeneratorAction::DisplayLayer(self.selected_step));
-            }
+            action = Some(match self.mask_step.and_then(|i| self.steps.get(i)) {
+                Some(step) => GeneratorAction::DisplayMask(
+                    step.mask
+                        .clone()
+                        .unwrap_or_else(|| vec![1.0; MASK_SIZE * MASK_SIZE]),
+                ),
+                None => GeneratorAction::DisplayLayer(self.selected_step),
+            });
         }
         if let Some(i) = to_remove {
             self.steps.remove(i);
-            if self.selected_step >= self.steps.len() {
-                self.selected_step = if self.steps.is_empty() {
-                    0
-                } else {
-                    self.steps.len() - 1
-                };
-            }
-            action = Some(GeneratorAction::Regen(true, i));
-            self.mask_selected = false;
+            self.selected_step = self
+                .selected_step
+                .min(self.steps.len().saturating_sub(1));
+            self.mask_step = None;
+            action = Some(GeneratorAction::Regen {
+                delete: Some(i),
+                from: i,
+            });
         }
         if ui.input(|i| i.pointer.any_released()) {
             if let Some(i) = to_move {
@@ -383,33 +417,45 @@ impl PanelGenerator {
                         self.move_to_pos
                     };
                     self.steps.insert(dest, step);
-                    action = Some(GeneratorAction::Regen(false, i));
-                    self.mask_selected = false;
+                    self.mask_step = None;
+                    // every step between the old and the new position changed
+                    action = Some(GeneratorAction::Regen {
+                        delete: None,
+                        from: i.min(dest),
+                    });
                 }
             }
         }
-        action
+        self.merge_dirty_mask(action)
     }
-    pub fn load(&mut self, file_path: &str) -> Result<(), String> {
-        let mut file = File::open(file_path).map_err(|_| "Unable to open the file")?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)
-            .map_err(|_| "Unable to read the file")?;
-        let gen_data: PanelGenerator =
-            ron::from_str(&contents).map_err(|e| format!("Cannot parse the file : {}", e))?;
-        if gen_data.version != VERSION {
-            return Err(format!(
-                "Bad file version. Expected {}, found {}",
-                VERSION, gen_data.version
-            ));
+    /// once mask editing ends, a mask painted earlier is recomputed with whatever else is pending
+    fn merge_dirty_mask(&mut self, action: Option<GeneratorAction>) -> Option<GeneratorAction> {
+        if self.mask_step.is_some() {
+            return action;
         }
-        *self = gen_data;
-        Ok(())
-    }
-    pub fn save(&self, file_path: &str) -> Result<(), String> {
-        let data = ron::to_string(self).unwrap();
-        let mut buffer = File::create(file_path).map_err(|_| "Unable to create the file")?;
-        write!(buffer, "{}", data).map_err(|_| "Unable to write to the file")?;
-        Ok(())
+        let Some(dirty) = self.mask_dirty else {
+            return action;
+        };
+        match action {
+            Some(GeneratorAction::Regen { delete, from }) => {
+                self.mask_dirty = None;
+                Some(GeneratorAction::Regen {
+                    delete,
+                    from: from.min(dirty),
+                })
+            }
+            None | Some(GeneratorAction::DisplayLayer(_)) => {
+                self.mask_dirty = None;
+                Some(GeneratorAction::Regen {
+                    delete: None,
+                    from: dirty,
+                })
+            }
+            // SetSeed recomputes everything, Clear drops everything, DisplayMask cannot happen here
+            other => {
+                self.mask_dirty = None;
+                other
+            }
+        }
     }
 }

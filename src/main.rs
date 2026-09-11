@@ -12,6 +12,7 @@ mod panel_export;
 mod panel_generator;
 mod panel_maskedit;
 mod panel_save;
+mod project;
 mod worldgen;
 
 use eframe::egui::{self, Visuals};
@@ -29,6 +30,7 @@ use panel_3dview::Panel3dView;
 use panel_export::PanelExport;
 use panel_generator::{GeneratorAction, PanelGenerator};
 use panel_save::{PanelSaveLoad, SaveLoadAction};
+use project::Project;
 use worldgen::{generator_thread, ExportMap, WorldGenCommand, WorldGenerator};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -115,10 +117,6 @@ struct MyApp {
     exp2main_tx: Sender<ThreadMessage>,
     /// an error to display in a popup
     err_msg: Option<String>,
-    /// are we editing a mask ?
-    mask_step: Option<usize>,
-    /// last time the mask was updated
-    last_mask_updated: f64,
 }
 
 impl MyApp {
@@ -149,7 +147,6 @@ impl MyApp {
             exporter_progress: 1.0,
             exporter_text: String::new(),
             exporter_cur_step: 0,
-            mask_step: None,
             gen_panel: PanelGenerator::default(),
             export_panel: PanelExport::default(),
             load_save_panel: PanelSaveLoad::default(),
@@ -157,7 +154,6 @@ impl MyApp {
             main2wgen_tx: main2gen_tx,
             exp2main_tx,
             err_msg: None,
-            last_mask_updated: 0.0,
         }
     }
 }
@@ -179,16 +175,17 @@ impl MyApp {
             let _ = tx.send(ThreadMessage::ExporterDone(res));
         });
     }
-    /// the single entry point to recompute the stack from a step; every edit routes through it
-    fn regen(&mut self, must_delete: bool, from_idx: usize) {
+    /// the single entry point to recompute the stack from a step; every edit routes through it.
+    /// `delete` is a step the generator still holds and the panel no longer has.
+    fn regen(&mut self, delete: Option<usize>, from_idx: usize) {
         self.generation += 1;
         self.main2wgen_tx
             .send(WorldGenCommand::Abort(from_idx))
             .unwrap();
         let len = self.gen_panel.steps.len();
-        if must_delete {
+        if let Some(index) = delete {
             self.main2wgen_tx
-                .send(WorldGenCommand::DeleteStep(from_idx))
+                .send(WorldGenCommand::DeleteStep(index))
                 .unwrap();
         }
         if len == 0 {
@@ -217,7 +214,7 @@ impl MyApp {
         self.main2wgen_tx
             .send(WorldGenCommand::SetSeed(new_seed))
             .unwrap();
-        self.regen(false, 0);
+        self.regen(None, 0);
     }
     fn resize(&mut self, new_size: usize) {
         if self.preview_size == new_size {
@@ -227,7 +224,7 @@ impl MyApp {
         self.main2wgen_tx
             .send(WorldGenCommand::SetSize(new_size))
             .unwrap();
-        self.regen(false, 0);
+        self.regen(None, 0);
     }
     fn render_left_panel(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("Generation").show(ctx, |ui| {
@@ -245,21 +242,29 @@ impl MyApp {
             ui.separator();
             match self.load_save_panel.render(ui) {
                 Some(SaveLoadAction::Load) => {
-                    if let Err(msg) = self.gen_panel.load(self.load_save_panel.get_file_path()) {
-                        let err_msg = format!(
-                            "Error while reading project {} : {}",
-                            self.load_save_panel.get_file_path(),
-                            msg
-                        );
-                        log(&err_msg);
-                        self.err_msg = Some(err_msg);
-                    } else {
-                        self.main2wgen_tx.send(WorldGenCommand::Clear).unwrap();
-                        self.set_seed(self.gen_panel.seed);
+                    match Project::load(self.load_save_panel.get_file_path()) {
+                        Ok(project) => {
+                            self.gen_panel.load_project(project);
+                            self.main2wgen_tx.send(WorldGenCommand::Clear).unwrap();
+                            self.set_seed(self.gen_panel.seed);
+                        }
+                        Err(msg) => {
+                            let err_msg = format!(
+                                "Error while reading project {} : {}",
+                                self.load_save_panel.get_file_path(),
+                                msg
+                            );
+                            log(&err_msg);
+                            self.err_msg = Some(err_msg);
+                        }
                     }
                 }
                 Some(SaveLoadAction::Save) => {
-                    if let Err(msg) = self.gen_panel.save(self.load_save_panel.get_file_path()) {
+                    if let Err(msg) = self
+                        .gen_panel
+                        .project()
+                        .save(self.load_save_panel.get_file_path())
+                    {
                         let err_msg = format!(
                             "Error while writing project {} : {}",
                             self.load_save_panel.get_file_path(),
@@ -285,25 +290,15 @@ impl MyApp {
                     Some(GeneratorAction::SetSeed(new_seed)) => {
                         self.set_seed(new_seed);
                     }
-                    Some(GeneratorAction::Regen(must_delete, from_idx)) => {
-                        self.regen(must_delete, from_idx);
-                    }
-                    Some(GeneratorAction::Disable(idx)) | Some(GeneratorAction::Enable(idx)) => {
-                        // the step is re-sent with its new `disabled` flag
-                        self.regen(false, idx);
+                    Some(GeneratorAction::Regen { delete, from }) => {
+                        self.regen(delete, from);
                     }
                     Some(GeneratorAction::DisplayLayer(step)) => {
                         self.main2wgen_tx
                             .send(WorldGenCommand::GetStepMap(self.generation, step))
                             .unwrap();
                     }
-                    Some(GeneratorAction::DisplayMask(step)) => {
-                        self.mask_step = Some(step);
-                        let mask = if let Some(ref mask) = self.gen_panel.steps[step].mask {
-                            Some(mask.clone())
-                        } else {
-                            Some(vec![1.0; MASK_SIZE * MASK_SIZE])
-                        };
+                    Some(GeneratorAction::DisplayMask(mask)) => {
                         self.panel_2d
                             .display_mask(self.image_size, self.preview_size as u32, mask);
                     }
@@ -311,6 +306,10 @@ impl MyApp {
                 }
             });
         });
+        // the generator panel owns the mask session; the 2D preview follows it
+        if !self.gen_panel.is_editing_mask() {
+            self.panel_2d.exit_mask_mode();
+        }
     }
     fn render_central_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -320,20 +319,14 @@ impl MyApp {
                     .default_open(true)
                     .show(ui, |ui| match self.panel_2d.render(ui) {
                         Some(Panel2dAction::ResizePreview(new_size)) => {
+                            self.gen_panel.exit_mask_mode();
                             self.resize(new_size);
-                            self.mask_step = None;
-                            self.gen_panel.mask_selected = false;
                         }
-                        Some(Panel2dAction::MaskUpdated) => {
-                            self.last_mask_updated = ui.input(|r| r.time);
+                        Some(Panel2dAction::MaskCommitted(mask)) => {
+                            self.gen_panel.commit_mask(mask);
                         }
                         Some(Panel2dAction::MaskDelete) => {
-                            if let Some(step) = self.mask_step {
-                                if let Some(step) = self.gen_panel.steps.get_mut(step) {
-                                    step.mask = None;
-                                }
-                            }
-                            self.last_mask_updated = 0.0;
+                            self.gen_panel.delete_mask();
                         }
                         None => (),
                     });
@@ -387,11 +380,6 @@ impl MyApp {
                     return;
                 }
                 // display heightmap from a specific step in the 2d preview
-                if let Some(step) = self.mask_step {
-                    // mask was updated, recompute terrain
-                    self.regen(false, step);
-                    self.mask_step = None;
-                }
                 self.panel_2d
                     .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
             }
@@ -475,17 +463,6 @@ impl eframe::App for MyApp {
         }
         self.render_left_panel(ctx);
         self.render_central_panel(ctx);
-        if self.last_mask_updated > 0.0 && ctx.input(|i| i.time) - self.last_mask_updated >= 0.5 {
-            if let Some(step) = self.mask_step {
-                // mask was updated, copy mask to generator step (which may have been deleted since)
-                if let Some(step) = self.gen_panel.steps.get_mut(step) {
-                    if let Some(mask) = self.panel_2d.get_current_mask() {
-                        step.mask = Some(mask);
-                    }
-                }
-            }
-            self.last_mask_updated = 0.0;
-        }
 
         if let Some(ref err_msg) = self.err_msg {
             // display error popup

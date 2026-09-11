@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- project files saved by a previous version can be loaded again (any older version loads, a newer
+  one is refused with a message); the three `ex_*.wgen` examples are re-saved in the new format
+- moving a step up recomputes the steps it passed over
+- a mask edit is stored on its step at the end of each brush stroke and recomputed once when
+  leaving the mask editor; a preview refresh no longer closes the mask editor
 - crashes when editing the step list (add, delete, clear, enable, resize the window) while the
   generator is still computing, and when editing steps during an export
 - a panic inside a generator or the exporter now shows an error popup instead of killing the app
@@ -16,6 +21,8 @@
 
 ### Changed
 
+- project files contain only the seed and the steps, pretty-printed (masks stay on one line)
+- the mask button shows which step's mask is being edited
 - the export computes the stack on a single heightmap instead of one per step (memory ÷ steps)
 - hills are generated row by row (faster at export sizes)
 - log timestamps share one clock across threads

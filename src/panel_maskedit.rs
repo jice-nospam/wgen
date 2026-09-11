@@ -64,14 +64,17 @@ impl PanelMaskEdit {
             heightmap_transparency: 0.5,
         }
     }
-    pub fn get_mask(&self) -> Option<Vec<f32>> {
-        self.mask.clone()
-    }
-    pub fn display_mask(&mut self, image_size: usize, mask: Option<Vec<f32>>) {
+    pub fn display_mask(&mut self, image_size: usize, mask: Vec<f32>) {
         self.image_size = image_size;
         self.mesh_updated = true;
         self.new_mask = true;
-        self.mask = mask.or_else(|| Some(vec![1.0; MASK_SIZE * MASK_SIZE]));
+        self.is_painting = false;
+        self.mask = Some(mask);
+    }
+    /// the heightmap shown under the mask changed (or the canvas size did)
+    pub fn heightmap_changed(&mut self, image_size: usize) {
+        self.image_size = image_size;
+        self.new_mask = true;
     }
     pub fn render(
         &mut self,
@@ -80,14 +83,18 @@ impl PanelMaskEdit {
     ) -> Option<Panel2dAction> {
         let mut action = None;
         ui.vertical(|ui| {
+            let was_painting = self.is_painting;
             egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
                 self.render_3dview(ui, heightmap_img, self.image_size as u32);
             });
             if self.is_painting {
-                action = Some(Panel2dAction::MaskUpdated);
                 ui.ctx().request_repaint();
             } else {
                 self.prev_frame_time = -1.0;
+                if was_painting {
+                    // the brush stroke ended : hand the mask over to its step
+                    action = self.mask.clone().map(Panel2dAction::MaskCommitted);
+                }
             }
             ui.label("mouse buttons : left increase, right decrease, middle set brush value");
             ui.horizontal(|ui| {
@@ -183,6 +190,9 @@ impl PanelMaskEdit {
                 self.update_mask(canvas_pos, lbutton, rbutton, brush_config, time as f32);
                 mesh_updated = true;
             }
+        } else {
+            // the pointer left the window : the stroke is over
+            self.is_painting = false;
         }
         let mask = if mesh_updated {
             self.mask.clone()

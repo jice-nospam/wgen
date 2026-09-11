@@ -5,11 +5,11 @@ use epaint::{Color32, ColorImage};
 use crate::{fps::FpsCounter, panel_maskedit::PanelMaskEdit, worldgen::ExportMap};
 
 pub enum Panel2dAction {
-    /// inform the main program that the preview size has changed. terrain/3d view must be recomputed
+    /// the preview size has changed : terrain and 3d view must be recomputed
     ResizePreview(usize),
-    /// inform the main program that mask must be copied to the generator panel
-    MaskUpdated,
-    /// inform the main program that mask must be deleted in the generator panel
+    /// a brush stroke ended : this is the mask being edited, to store on its step
+    MaskCommitted(Vec<f32>),
+    /// the mask being edited was cleared : remove it from its step
     MaskDelete,
 }
 pub struct Panel2dView {
@@ -31,6 +31,8 @@ pub struct Panel2dView {
     fps_counter: FpsCounter,
     /// egui renderable image
     ui_img: Option<RetainedImage>,
+    /// a preview size change waiting for a frame with no other action to report
+    pending_resize: Option<usize>,
     /// last heightmap displayed, re-rendered when the canvas size changes
     last_hmap: Option<ExportMap>,
     /// mask editor subpanel
@@ -49,24 +51,27 @@ impl Panel2dView {
             preview_size: preview_size as usize,
             fps_counter: FpsCounter::default(),
             ui_img: None,
+            pending_resize: None,
             last_hmap: None,
             mask_editor: PanelMaskEdit::new(image_size),
         };
         panel.refresh(image_size, preview_size, Some(hmap));
         panel
     }
-    pub fn get_current_mask(&self) -> Option<Vec<f32>> {
-        self.mask_editor.get_mask()
-    }
-    pub fn display_mask(&mut self, image_size: usize, preview_size: u32, mask: Option<Vec<f32>>) {
+    /// shows the mask editor on top of the current heightmap
+    pub fn display_mask(&mut self, image_size: usize, preview_size: u32, mask: Vec<f32>) {
         self.image_size = image_size;
         self.preview_size = preview_size as usize;
         self.mask_editor.display_mask(image_size, mask);
         self.mask_mode = true;
     }
+    /// shows the heightmap alone
+    pub fn exit_mask_mode(&mut self) {
+        self.mask_mode = false;
+    }
+    /// re-renders the preview image; the mask editor, if shown, keeps its mask on top of the new image
     pub fn refresh(&mut self, image_size: usize, preview_size: u32, hmap: Option<&ExportMap>) {
         self.image_size = image_size;
-        self.mask_mode = false;
         self.preview_size = preview_size as usize;
         if self.img.width() != image_size {
             self.img = ColorImage::new([self.image_size, self.image_size], Color32::BLACK);
@@ -96,6 +101,9 @@ impl Panel2dView {
             }
         };
         self.ui_img = Some(RetainedImage::from_color_image("hmap", self.img.clone()));
+        if self.mask_mode {
+            self.mask_editor.heightmap_changed(image_size);
+        }
     }
     pub fn render(&mut self, ui: &mut egui::Ui) -> Option<Panel2dAction> {
         let mut action = None;
@@ -128,7 +136,11 @@ impl Panel2dView {
             ui.checkbox(&mut self.live_preview, "");
         });
         if self.preview_size != old_size {
-            action = Some(Panel2dAction::ResizePreview(self.preview_size));
+            self.pending_resize = Some(self.preview_size);
+        }
+        if action.is_none() {
+            // a mask commit reported in the same frame goes first : the resize recomputes everything
+            action = self.pending_resize.take().map(Panel2dAction::ResizePreview);
         }
         action
     }

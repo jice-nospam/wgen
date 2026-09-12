@@ -5,6 +5,7 @@
 ### Changed
 
 - Better, faster and resolution independant WaterErosion
+- MidPoint is resolution independant
 
 ### Fixed
 
@@ -29,6 +30,8 @@
 - WaterErosion parameters were measured in pixels, so an export looked nothing like the preview;
   drops lost all their speed on the slightest climb; the erosion brush was applied half a cell off
   its own position
+- MidPoint left a 1-px dark seam on the right and bottom edges at every preview size, grid seams
+  at non-power-of-two export sizes and a wrong octave on non-square exports
 
 ### Changed
 

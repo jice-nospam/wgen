@@ -2,11 +2,7 @@ use eframe::egui::{self, CursorIcon, Id, LayerId, Order, Sense};
 use epaint::Color32;
 
 use crate::{
-    generators::{
-        render_fbm, render_hills, render_island, render_landmass, render_mid_point,
-        render_mudslide, render_water_erosion, FbmConf, HillsConf, IslandConf, LandMassConf,
-        MidPointConf, MudSlideConf, NormalizeConf, WaterErosionConf,
-    },
+    generators::HillsConf,
     project::Project,
     worldgen::{Step, StepType},
     MASK_SIZE,
@@ -164,80 +160,18 @@ impl PanelGenerator {
             egui::ComboBox::from_label("")
                 .selected_text(format!("{}", self.cur_step))
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.cur_step,
-                        Step {
-                            typ: StepType::Hills(HillsConf::default()),
-                            ..Default::default()
-                        },
-                        "Hills",
-                    )
-                    .on_hover_text("Add round hills to generate a smooth land");
-                    ui.selectable_value(
-                        &mut self.cur_step,
-                        Step {
-                            typ: StepType::Fbm(FbmConf::default()),
-                            ..Default::default()
-                        },
-                        "Fbm",
-                    )
-                    .on_hover_text("Add fractional brownian motion to generate a mountainous land");
-                    ui.selectable_value(
-                        &mut self.cur_step,
-                        Step {
-                            typ: StepType::MidPoint(MidPointConf::default()),
-                            ..Default::default()
-                        },
-                        "MidPoint",
-                    )
-                    .on_hover_text("Use mid point deplacement to generate a mountainous land");
-                    ui.selectable_value(
-                        &mut self.cur_step,
-                        Step {
-                            typ: StepType::Normalize(NormalizeConf::default()),
-                            ..Default::default()
-                        },
-                        "Normalize",
-                    )
-                    .on_hover_text("Scale the terrain back to the 0.0-1.0 range");
-                    ui.selectable_value(
-                        &mut self.cur_step,
-                        Step {
-                            typ: StepType::LandMass(LandMassConf::default()),
-                            ..Default::default()
-                        },
-                        "LandMass",
-                    )
-                    .on_hover_text(
-                        "Scale the terrain so that only a proportion of land is above water level",
-                    );
-                    ui.selectable_value(
-                        &mut self.cur_step,
-                        Step {
-                            typ: StepType::MudSlide(MudSlideConf::default()),
-                            ..Default::default()
-                        },
-                        "MudSlide",
-                    )
-                    .on_hover_text("Simulate mud sliding and smoothing the terrain");
-                    ui.selectable_value(
-                        &mut self.cur_step,
-                        Step {
-                            typ: StepType::WaterErosion(WaterErosionConf::default()),
-                            ..Default::default()
-                        },
-                        "WaterErosion",
-                    )
-                    .on_hover_text("Simulate rain falling and carving rivers");
-                    ui.selectable_value(
-                        &mut self.cur_step,
-                        Step {
-                            typ: StepType::Island(IslandConf::default()),
-                            ..Default::default()
-                        },
-                        "Island",
-                    )
-                    .on_hover_text("Lower height on the map borders");
+                    for typ in StepType::all() {
+                        let (name, desc) = (typ.name(), typ.description());
+                        ui.selectable_value(
+                            &mut self.cur_step,
+                            Step {
+                                typ,
+                                ..Default::default()
+                            },
+                            name,
+                        )
+                        .on_hover_text(desc);
+                    }
                 });
         });
         action
@@ -329,40 +263,7 @@ impl PanelGenerator {
     fn render_curstep_conf(&mut self, ui: &mut egui::Ui) -> Option<GeneratorAction> {
         let mut action = None;
         let step = self.steps.get_mut(self.selected_step)?;
-        match step {
-            Step {
-                typ: StepType::Hills(conf),
-                ..
-            } => render_hills(ui, conf),
-            Step {
-                typ: StepType::LandMass(conf),
-                ..
-            } => render_landmass(ui, conf),
-            Step {
-                typ: StepType::MudSlide(conf),
-                ..
-            } => render_mudslide(ui, conf),
-            Step {
-                typ: StepType::Fbm(conf),
-                ..
-            } => render_fbm(ui, conf),
-            Step {
-                typ: StepType::WaterErosion(conf),
-                ..
-            } => render_water_erosion(ui, conf),
-            Step {
-                typ: StepType::Island(conf),
-                ..
-            } => render_island(ui, conf),
-            Step {
-                typ: StepType::MidPoint(conf),
-                ..
-            } => render_mid_point(ui, conf),
-            Step {
-                typ: StepType::Normalize(_),
-                ..
-            } => (),
-        }
+        step.typ.render(ui);
         if ui.button("Refresh").clicked() {
             action = Some(GeneratorAction::Regen {
                 delete: None,

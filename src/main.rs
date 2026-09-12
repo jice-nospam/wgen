@@ -13,6 +13,7 @@ mod panel_generator;
 mod panel_maskedit;
 mod panel_save;
 mod project;
+mod step;
 mod worldgen;
 
 use eframe::egui::{self, Visuals};
@@ -31,7 +32,7 @@ use panel_export::PanelExport;
 use panel_generator::{GeneratorAction, PanelGenerator};
 use panel_save::{PanelSaveLoad, SaveLoadAction};
 use project::Project;
-use worldgen::{generator_thread, ExportMap, WorldGenCommand, WorldGenerator};
+use worldgen::{generator_thread, ExportMap, Invalidation, WorldGenCommand, WorldGenerator};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MASK_SIZE: usize = 64;
@@ -100,6 +101,8 @@ struct MyApp {
     seed: u64,
     /// bumped by every `regen`; generator messages tagged with an older value are stale and dropped
     generation: u64,
+    /// shared with the generator thread: tells the running step whether a regen made it stale
+    invalidation: Invalidation,
     /// labels of the steps being exported, captured when the export started
     export_step_names: Vec<String>,
     // ui widgets
@@ -132,14 +135,17 @@ impl MyApp {
         let (main2gen_tx, gen_rx) = mpsc::channel();
         let gen_tx = exp2main_tx.clone();
         let ctx = cc.egui_ctx.clone();
+        let invalidation = Invalidation::default();
+        let thread_invalidation = invalidation.clone();
         thread::spawn(move || {
-            generator_thread(seed, preview_size, gen_rx, gen_tx, ctx);
+            generator_thread(seed, preview_size, gen_rx, gen_tx, ctx, thread_invalidation);
         });
         Self {
             image_size,
             preview_size,
             seed,
             generation: 0,
+            invalidation,
             export_step_names: Vec::new(),
             panel_2d,
             panel_3d: Panel3dView::new(image_size as f32),
@@ -179,6 +185,7 @@ impl MyApp {
     /// `delete` is a step the generator still holds and the panel no longer has.
     fn regen(&mut self, delete: Option<usize>, from_idx: usize) {
         self.generation += 1;
+        self.invalidation.set(self.generation, from_idx);
         self.main2wgen_tx
             .send(WorldGenCommand::Abort(from_idx))
             .unwrap();
@@ -280,8 +287,9 @@ impl MyApp {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 match self.gen_panel.render(ui, self.progress) {
                     Some(GeneratorAction::Clear) => {
-                        // drop queued steps too; the running one finishes and its result is stale
+                        // drop queued steps too; the running one stops at its next progress report
                         self.generation += 1;
+                        self.invalidation.set(self.generation, 0);
                         self.main2wgen_tx.send(WorldGenCommand::Abort(0)).unwrap();
                         self.main2wgen_tx.send(WorldGenCommand::Clear).unwrap();
                         self.gen_panel.is_running = false;

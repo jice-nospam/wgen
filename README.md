@@ -7,7 +7,7 @@ This is a much simpler generator, but it can export maps as big as you want.
 Continent example, using a rough hill pattern and a high frequency FBM :
 ![continent example](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ex_continent.jpg)
 
-Island example, using mid-point deplacement algorithm :
+Island example, using mid-point displacement algorithm :
 ![island example](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ex_island.jpg)
 
 Smoother landscape using only hills generator :
@@ -22,14 +22,14 @@ If you like this project and want to support its development, feel free to donat
 ## Generators
 This is where you control the world generation. You can stack several "generators" that applies some modification to the heightmap.
 Select the generator with the dropdown button, then press `New step` button to add it to the stack.
-You can click on a step label in the stack to select it and display its parameters. Click the `Refresh` button once you changed the parameters values to recompute the heightmap from this step.
+You can click on a step label in the stack to select it and display its parameters. Click the `Refresh` button once you changed the parameters values to recompute the heightmap from this step. Editing a step (or the seed) while the generator is still computing interrupts the running step, so the preview reacts without waiting for it to finish.
 
 ![Generators UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_gen.jpg)
 
 The current version features those generators :
 - Hills : superposition of hemispheric hills to generate a smooth terrain
 - Fbm : fractal brownian motion can be used to add noise to an existing terrain or as first step to generate a continent-like terrain.
-- MidPoint : square-diamond mid-point deplacement generates a realistic looking heightmap
+- MidPoint : square-diamond mid-point displacement generates a realistic looking heightmap
 - Normalize : scales the heightmap back to the range 0.0..1.0. Some generators work better with a normalized heightmap. Check your heightmap values range in the 2D preview.
 - LandMass : scale the terrain so that a defined proportion is above a defined water level. Also applies a x^3 curve above water level to have a nice plain/mountain ratio and can lower underwater terrain to have a crisp coast line
 - MudSlide : smoothen the terrain by simulating earth sliding along slopes

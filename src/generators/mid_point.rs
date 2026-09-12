@@ -1,12 +1,8 @@
-use std::sync::mpsc::Sender;
-
 use eframe::egui;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
-use crate::ThreadMessage;
-
-use super::report_progress;
+use super::Progress;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct MidPointConf {
@@ -17,13 +13,6 @@ impl Default for MidPointConf {
     fn default() -> Self {
         Self { roughness: 0.7 }
     }
-}
-
-pub struct ProgressTracking {
-    count: usize,
-    progress: f32,
-    min_progress_step: f32,
-    export: bool,
 }
 
 pub fn render_mid_point(ui: &mut egui::Ui, conf: &mut MidPointConf) {
@@ -42,58 +31,48 @@ pub fn gen_mid_point(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &MidPointConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
+    progress: &mut Progress,
 ) {
     let mut rng = StdRng::seed_from_u64(seed);
     hmap[0] = rng.random_range(0.0..1.0);
     hmap[size.0 - 1] = rng.random_range(0.0..1.0);
     hmap[size.0 * (size.1 - 1)] = rng.random_range(0.0..1.0);
     hmap[size.0 * size.1 - 1] = rng.random_range(0.0..1.0);
-    let mut track = ProgressTracking {
-        count: size.0 * size.1 * 2,
-        progress: 0.0,
-        min_progress_step,
-        export,
-    };
+    let mut done = 0;
     diamond_square(
         hmap,
         &mut rng,
         size,
         size.0 / 2,
         conf.roughness,
-        &mut track,
-        tx,
+        &mut done,
+        progress,
     );
 }
 
-fn check_progress(track: &mut ProgressTracking, size: (usize, usize), tx: Sender<ThreadMessage>) {
-    let new_progress = 1.0 - track.count as f32 / (size.0 * size.1 * 2) as f32;
-    if new_progress - track.progress >= track.min_progress_step {
-        track.progress = new_progress;
-        report_progress(track.progress, track.export, tx);
-    }
-}
-
+/// `done` counts the cells written so far, out of `size.0 * size.1 * 2`; a cancelled step
+/// returns early at every recursion level
 pub fn diamond_square(
     hmap: &mut [f32],
     rng: &mut StdRng,
     size: (usize, usize),
     cur_size: usize,
     roughness: f32,
-    track: &mut ProgressTracking,
-    tx: Sender<ThreadMessage>,
+    done: &mut usize,
+    progress: &mut Progress,
 ) {
     let half = cur_size / 2;
     if half < 1 {
         return;
     }
+    let total = (size.0 * size.1 * 2) as f32;
     for y in (half..size.1).step_by(cur_size) {
         for x in (half..size.0).step_by(cur_size) {
             square_step(hmap, rng, x, y, size, half, roughness);
-            track.count -= 1;
-            check_progress(track, size, tx.clone());
+            *done += 1;
+            if !progress.report(*done as f32 / total) {
+                return;
+            }
         }
     }
     let mut col = 0;
@@ -102,18 +81,30 @@ pub fn diamond_square(
         if col % 2 == 1 {
             for y in (half..size.1).step_by(cur_size) {
                 diamond_step(hmap, rng, x, y, size, half, roughness);
-                track.count -= 1;
-                check_progress(track, size, tx.clone());
+                *done += 1;
+                if !progress.report(*done as f32 / total) {
+                    return;
+                }
             }
         } else {
             for y in (0..size.1).step_by(cur_size) {
                 diamond_step(hmap, rng, x, y, size, half, roughness);
-                track.count -= 1;
-                check_progress(track, size, tx.clone());
+                *done += 1;
+                if !progress.report(*done as f32 / total) {
+                    return;
+                }
             }
         }
     }
-    diamond_square(hmap, rng, size, cur_size / 2, roughness * 0.5, track, tx);
+    diamond_square(
+        hmap,
+        rng,
+        size,
+        cur_size / 2,
+        roughness * 0.5,
+        done,
+        progress,
+    );
 }
 
 fn square_step(

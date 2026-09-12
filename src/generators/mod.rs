@@ -103,13 +103,79 @@ pub fn _interpolate(v: &[f32], x: f32, y: f32, size: (usize, usize)) -> f32 {
     (1.0 - dy) * val_n + dy * val_s
 }
 
-/// a closed channel (main thread gone, or a headless test) is not an error for a generator
-fn report_progress(progress: f32, export: bool, tx: Sender<ThreadMessage>) {
-    let _ = if export {
-        tx.send(ThreadMessage::ExporterStepProgress(progress))
-    } else {
-        tx.send(ThreadMessage::GeneratorStepProgress(progress))
-    };
+/// progress reporting and cancellation for one step; one instance per step execution
+pub struct Progress {
+    tx: Sender<ThreadMessage>,
+    /// selects ExporterStepProgress over GeneratorStepProgress
+    export: bool,
+    /// send only when the progress advanced by this much since the last message
+    min_step: f32,
+    last_sent: f32,
+    /// staleness is asked at most once per 1 % of progress
+    last_checked: f32,
+    stale: Box<dyn Fn() -> bool + Send>,
+    /// latched once `stale` returned true
+    cancelled: bool,
+}
+
+impl Progress {
+    fn new(
+        tx: Sender<ThreadMessage>,
+        export: bool,
+        min_step: f32,
+        stale: Box<dyn Fn() -> bool + Send>,
+    ) -> Self {
+        Self {
+            tx,
+            export,
+            min_step,
+            last_sent: 0.0,
+            last_checked: -1.0,
+            stale,
+            cancelled: false,
+        }
+    }
+    /// preview path: `stale` tells whether the step being run has been invalidated by a newer regen
+    pub fn preview(
+        tx: Sender<ThreadMessage>,
+        min_step: f32,
+        stale: impl Fn() -> bool + Send + 'static,
+    ) -> Self {
+        Self::new(tx, false, min_step, Box::new(stale))
+    }
+    /// export path: never cancelled
+    pub fn export(tx: Sender<ThreadMessage>, min_step: f32) -> Self {
+        Self::new(tx, true, min_step, Box::new(|| false))
+    }
+    /// tests: dropped receiver, never cancelled
+    #[cfg(test)]
+    pub fn headless() -> Self {
+        let (tx, _) = std::sync::mpsc::channel();
+        Self::new(tx, false, 1.0, Box::new(|| false))
+    }
+    /// `p` in 0..1 within this step. Returns false once the step is cancelled: the generator must return.
+    /// A closed channel (main thread gone, or a headless test) is not an error.
+    pub fn report(&mut self, p: f32) -> bool {
+        if self.cancelled {
+            return false;
+        }
+        if p - self.last_checked >= 0.01 {
+            self.last_checked = p;
+            if (self.stale)() {
+                self.cancelled = true;
+                return false;
+            }
+        }
+        if p - self.last_sent >= self.min_step {
+            self.last_sent = p;
+            let _ = self.tx.send(if self.export {
+                ThreadMessage::ExporterStepProgress(p)
+            } else {
+                ThreadMessage::GeneratorStepProgress(p)
+            });
+        }
+        true
+    }
 }
 
 #[cfg(test)]
@@ -120,5 +186,23 @@ mod tests {
     fn min_max_of_empty_map_is_zero() {
         assert_eq!(get_min_max(&[]), (0.0, 0.0));
         assert_eq!(get_min_max(&[2.0, -1.0, 0.5]), (-1.0, 2.0));
+    }
+
+    #[test]
+    fn progress_throttles_and_stops_when_stale() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut progress = Progress::preview(tx, 0.5, || false);
+        assert!(progress.report(0.2));
+        assert!(progress.report(0.6));
+        assert!(progress.report(1.0));
+        match rx.try_recv() {
+            Ok(ThreadMessage::GeneratorStepProgress(p)) => assert_eq!(p, 0.6),
+            _ => panic!("expected one GeneratorStepProgress(0.6)"),
+        }
+        assert!(rx.try_recv().is_err(), "more than one message sent");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut stale = Progress::preview(tx, 0.5, || true);
+        assert!(!stale.report(0.0));
+        assert!(rx.try_recv().is_err(), "a cancelled step sent a message");
     }
 }

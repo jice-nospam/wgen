@@ -1,12 +1,8 @@
-use std::sync::mpsc::Sender;
-
 use eframe::egui;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use serde::{Deserialize, Serialize};
 
-use crate::ThreadMessage;
-
-use super::report_progress;
+use super::Progress;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct FbmConf {
@@ -81,20 +77,19 @@ pub fn gen_fbm(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &FbmConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
+    progress: &mut Progress,
 ) {
     let xcoef = conf.mulx / 400.0;
     let ycoef = conf.muly / 400.0;
-    let mut progress = 0.0;
     let num_threads = num_cpus::get();
+    // only chunk 0 reports progress; on cancel it stops while the other chunks finish their rows
+    let mut progress = Some(progress);
     std::thread::scope(|s| {
         // at least one row per job : a small preview on a many-core machine must not get a zero-sized chunk
         let size_per_job = (size.1 / num_threads).max(1);
         for (i, chunk) in hmap.chunks_mut(size_per_job * size.0).enumerate() {
             let fbm = Fbm::<Perlin>::new(seed as u32).set_octaves(conf.octaves as usize);
-            let tx = tx.clone();
+            let mut chunk_progress = if i == 0 { progress.take() } else { None };
             s.spawn(move || {
                 let yoffset = i * size_per_job;
                 let lasty = size_per_job.min(size.1 - yoffset);
@@ -108,11 +103,9 @@ pub fn gen_fbm(
                         chunk[offset] += value;
                         offset += 1;
                     }
-                    if i == 0 {
-                        let new_progress = (y + 1) as f32 / size_per_job as f32;
-                        if new_progress - progress >= min_progress_step {
-                            progress = new_progress;
-                            report_progress(progress, export, tx.clone())
+                    if let Some(progress) = chunk_progress.as_mut() {
+                        if !progress.report((y + 1) as f32 / size_per_job as f32) {
+                            break;
                         }
                     }
                 }
@@ -124,16 +117,14 @@ pub fn gen_fbm(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc;
 
     #[test]
     fn fbm_is_deterministic_and_handles_tiny_maps() {
-        let (tx, _) = mpsc::channel();
         let conf = FbmConf::default();
         let mut a = vec![0.0; 8 * 2];
         let mut b = vec![0.0; 8 * 2];
-        gen_fbm(7, (8, 2), &mut a, &conf, false, tx.clone(), 1.0);
-        gen_fbm(7, (8, 2), &mut b, &conf, false, tx, 1.0);
+        gen_fbm(7, (8, 2), &mut a, &conf, &mut Progress::headless());
+        gen_fbm(7, (8, 2), &mut b, &conf, &mut Progress::headless());
         assert_eq!(a, b);
         assert!(a.iter().all(|v| v.is_finite()));
     }

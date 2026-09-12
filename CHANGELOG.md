@@ -21,6 +21,7 @@
 - exporting a project with a masked step panicked when the export was taller than wide, and
   squashed the mask vertically when wider than tall
 - panic `The absolute aspect ratio cannot be zero` when moving or resizing the window
+- Island progress bar used the map width instead of its height on non-square exports
 
 ### Changed
 
@@ -29,6 +30,8 @@
 - the export computes the stack on a single heightmap instead of one per step (memory ÷ steps)
 - hills are generated row by row (faster at export sizes)
 - log timestamps share one clock across threads
+- editing a step, the seed or Clear while the generator is computing interrupts the running step
+  instead of waiting for it to finish (export is unaffected)
 
 ## [0.4.0] - 2025-03-16
 

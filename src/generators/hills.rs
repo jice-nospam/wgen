@@ -1,12 +1,8 @@
-use std::sync::mpsc::Sender;
-
 use eframe::egui;
 use rand::{prelude::*, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 
-use crate::ThreadMessage;
-
-use super::report_progress;
+use super::Progress;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct HillsConf {
@@ -57,15 +53,12 @@ pub fn gen_hills(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &HillsConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
+    progress: &mut Progress,
 ) {
     let mut rng = StdRng::seed_from_u64(seed);
     let real_radius = conf.base_radius * size.0 as f32 / 200.0;
     let hill_min_radius = real_radius * (1.0 - conf.radius_var);
     let hill_max_radius = real_radius * (1.0 + conf.radius_var);
-    let mut progress = 0.0;
     for i in 0..conf.nb_hill {
         let radius: f32 = if conf.radius_var == 0.0 {
             hill_min_radius
@@ -90,10 +83,8 @@ pub fn gen_hills(
                 }
             }
         }
-        let new_progress = i as f32 / conf.nb_hill as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
+        if !progress.report(i as f32 / conf.nb_hill as f32) {
+            return;
         }
     }
 }
@@ -101,19 +92,17 @@ pub fn gen_hills(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc;
 
     #[test]
     fn hills_are_deterministic_and_never_dig() {
-        let (tx, _) = mpsc::channel();
         let conf = HillsConf {
             nb_hill: 20,
             ..Default::default()
         };
         let mut a = vec![0.0; 16 * 16];
         let mut b = vec![0.0; 16 * 16];
-        gen_hills(3, (16, 16), &mut a, &conf, false, tx.clone(), 1.0);
-        gen_hills(3, (16, 16), &mut b, &conf, false, tx, 1.0);
+        gen_hills(3, (16, 16), &mut a, &conf, &mut Progress::headless());
+        gen_hills(3, (16, 16), &mut b, &conf, &mut Progress::headless());
         assert_eq!(a, b);
         assert!(a.iter().all(|&v| v >= 0.0));
         assert!(a.iter().any(|&v| v > 0.0));

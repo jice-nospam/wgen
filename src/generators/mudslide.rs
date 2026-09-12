@@ -1,11 +1,7 @@
-use std::sync::mpsc::Sender;
-
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 
-use crate::ThreadMessage;
-
-use super::{report_progress, DIRX, DIRY};
+use super::{Progress, DIRX, DIRY};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct MudSlideConf {
@@ -61,33 +57,27 @@ pub fn gen_mudslide(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &MudSlideConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
+    progress: &mut Progress,
 ) {
     let mut scratch = vec![0.0; size.0 * size.1];
-    let mut progress = 0.0;
-    let mut report = |new_progress: f32| {
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
-        }
-    };
     for i in 0..conf.iterations as usize {
-        mudslide(size, hmap, &mut scratch, conf, i, &mut report);
+        // a cancelled pass leaves `hmap` untouched
+        if !mudslide(size, hmap, &mut scratch, conf, i, progress) {
+            return;
+        }
         hmap.copy_from_slice(&scratch);
     }
 }
 
-/// one smoothing pass, reading `hmap` and writing `out`
+/// one smoothing pass, reading `hmap` and writing `out`; false when the step was cancelled
 fn mudslide(
     size: (usize, usize),
     hmap: &[f32],
     out: &mut [f32],
     conf: &MudSlideConf,
     iteration: usize,
-    report: &mut dyn FnMut(f32),
-) {
+    progress: &mut Progress,
+) -> bool {
     let sand_coef = 1.0 / (1.0 - conf.water_level);
     for y in 0..size.1 {
         let yoff = y * size.0;
@@ -126,29 +116,50 @@ fn mudslide(
             dh *= 1.0 - hcoef * hcoef * hcoef; // less smoothing at high altitudes
             out[x + yoff] = h + dh;
         }
-        report(
-            iteration as f32 / conf.iterations as f32
-                + (y as f32 / size.1 as f32) / conf.iterations as f32,
-        );
+        let p = iteration as f32 / conf.iterations as f32
+            + (y as f32 / size.1 as f32) / conf.iterations as f32;
+        if !progress.report(p) {
+            return false;
+        }
     }
+    true
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc;
 
     #[test]
     fn mudslide_is_deterministic_and_keeps_a_flat_map_flat() {
-        let (tx, _) = mpsc::channel();
         let conf = MudSlideConf::default();
         let mut flat = vec![0.5; 8 * 8];
-        gen_mudslide((8, 8), &mut flat, &conf, false, tx.clone(), 1.0);
+        gen_mudslide((8, 8), &mut flat, &conf, &mut Progress::headless());
         assert!(flat.iter().all(|&v| v == 0.5));
         let mut a: Vec<f32> = (0..64).map(|i| ((i * 7) % 11) as f32 / 11.0).collect();
         let mut b = a.clone();
-        gen_mudslide((8, 8), &mut a, &conf, false, tx.clone(), 1.0);
-        gen_mudslide((8, 8), &mut b, &conf, false, tx, 1.0);
+        gen_mudslide((8, 8), &mut a, &conf, &mut Progress::headless());
+        gen_mudslide((8, 8), &mut b, &conf, &mut Progress::headless());
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn cancelled_mudslide_leaves_map_untouched() {
+        let conf = MudSlideConf {
+            iterations: 3.0,
+            ..Default::default()
+        };
+        let ramp: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
+        let mut run = ramp.clone();
+        gen_mudslide((8, 8), &mut run, &conf, &mut Progress::headless());
+        assert_ne!(run, ramp, "an uncancelled run must change the ramp");
+        let (tx, _) = std::sync::mpsc::channel();
+        let mut cancelled = ramp.clone();
+        gen_mudslide(
+            (8, 8),
+            &mut cancelled,
+            &conf,
+            &mut Progress::preview(tx, 1.0, || true),
+        );
+        assert_eq!(cancelled, ramp);
     }
 }

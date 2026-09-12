@@ -1,11 +1,7 @@
-use std::sync::mpsc::Sender;
-
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 
-use crate::ThreadMessage;
-
-use super::{normalize, report_progress};
+use super::{normalize, Progress};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct LandMassConf {
@@ -69,12 +65,9 @@ pub fn gen_landmass(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &LandMassConf,
-    export: bool,
-    tx: Sender<ThreadMessage>,
-    min_progress_step: f32,
+    progress: &mut Progress,
 ) {
     let mut height_count: [f32; 256] = [0.0; 256];
-    let mut progress = 0.0;
     normalize(hmap, 0.0, 1.0);
     for y in 0..size.1 {
         let yoff = y * size.0;
@@ -83,10 +76,8 @@ pub fn gen_landmass(
             let ih = (h * 255.0) as usize;
             height_count[ih] += 1.0;
         }
-        let new_progress = 0.33 * y as f32 / size.1 as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
+        if !progress.report(0.33 * y as f32 / size.1 as f32) {
+            return;
         }
     }
     let mut water_level = 0;
@@ -112,10 +103,8 @@ pub fn gen_landmass(
             }
             hmap[x + yoff] = h;
         }
-        let new_progress = 0.33 + 0.33 * y as f32 / size.1 as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
+        if !progress.report(0.33 + 0.33 * y as f32 / size.1 as f32) {
+            return;
         }
     }
     // fix land/mountain ratio using h^plain_factor curve above sea level
@@ -130,10 +119,8 @@ pub fn gen_landmass(
                 hmap[x + y * size.0] = h;
             }
         }
-        let new_progress = 0.66 + 0.33 * y as f32 / size.1 as f32;
-        if new_progress - progress >= min_progress_step {
-            progress = new_progress;
-            report_progress(progress, export, tx.clone());
+        if !progress.report(0.66 + 0.33 * y as f32 / size.1 as f32) {
+            return;
         }
     }
 }
@@ -141,18 +128,16 @@ pub fn gen_landmass(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc;
 
     #[test]
     fn landmass_stays_finite_at_extreme_land_proportions() {
-        let (tx, _) = mpsc::channel();
         for land_proportion in [0.0, 1.0] {
             let conf = LandMassConf {
                 land_proportion,
                 ..Default::default()
             };
             let mut h: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
-            gen_landmass((8, 8), &mut h, &conf, false, tx.clone(), 1.0);
+            gen_landmass((8, 8), &mut h, &conf, &mut Progress::headless());
             assert!(h.iter().all(|v| v.is_finite()), "NaN at {}", land_proportion);
         }
     }

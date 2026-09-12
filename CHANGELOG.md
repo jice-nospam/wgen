@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.4.0] - Unreleased
+## [0.4.1] - Unreleased
 
 ### Fixed
 
@@ -29,6 +29,10 @@
 - the export computes the stack on a single heightmap instead of one per step (memory ÷ steps)
 - hills are generated row by row (faster at export sizes)
 - log timestamps share one clock across threads
+
+## [0.4.0] - 2025-03-16
+
+### Changed
 
 - exports to single channel EXR (slightly smaller files)
 - upgraded to egui 0.29, three_d 0.18

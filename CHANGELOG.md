@@ -18,6 +18,9 @@
 - LandMass produced NaN heights at land proportion 0 or 1
 - export tile size and tile count are now integers with a valid range
 - memory leak in the 3D preview (one uv buffer per regeneration)
+- exporting a project with a masked step panicked when the export was taller than wide, and
+  squashed the mask vertically when wider than tall
+- panic `The absolute aspect ratio cannot be zero` when moving or resizing the window
 
 ### Changed
 

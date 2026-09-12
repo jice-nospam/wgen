@@ -379,7 +379,7 @@ fn apply_mask(world_size: (usize, usize), mask: &[f32], prev: Option<&[f32]>, h:
         (0.0, 0.0)
     };
     for y in 0..world_size.1 {
-        let myf = (y * MASK_SIZE) as f32 / world_size.0 as f32;
+        let myf = (y * MASK_SIZE) as f32 / world_size.1 as f32;
         let my = myf as usize;
         let yalpha = myf.fract();
         for x in 0..world_size.0 {
@@ -486,5 +486,27 @@ mod tests {
         }
         do_command(WorldGenCommand::Abort(1), &mut wgen, &mut queue, &tx);
         assert_eq!(queue.len(), 1);
+    }
+
+    #[test]
+    fn apply_mask_handles_non_square_map() {
+        // mask: top half fully applied, bottom half fully masked out
+        let mut mask = vec![0.0; MASK_SIZE * MASK_SIZE];
+        for m in mask.iter_mut().take(MASK_SIZE * MASK_SIZE / 2) {
+            *m = 1.0;
+        }
+        for &(w, h) in &[(16usize, 32usize), (32, 16), (32, 32)] {
+            let mut hmap: Vec<f32> = (0..w * h).map(|i| 1.0 + (i % 7) as f32).collect();
+            let expected: Vec<f32> = hmap.iter().map(|v| v - 1.0).collect();
+            apply_mask((w, h), &mask, None, &mut hmap);
+            // first row is fully inside the white half: height shifted down by min
+            assert_eq!(&hmap[..w], &expected[..w], "top row at {w}x{h}");
+            // last row is fully inside the black half: flattened to min
+            assert!(
+                hmap[w * (h - 1)..].iter().all(|&v| v == 1.0),
+                "bottom row at {w}x{h}: {:?}",
+                &hmap[w * (h - 1)..]
+            );
+        }
     }
 }

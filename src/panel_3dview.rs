@@ -217,6 +217,11 @@ impl Panel3dView {
                     if mesh_updated {
                         renderer.update_model(three_d, &mesh_data);
                     }
+                    // A window resize/move can clamp the view to zero pixels on one side;
+                    // a zero-aspect camera panics and there is nothing to draw anyway.
+                    if !has_visible_area(&info) {
+                        return;
+                    }
                     renderer.render(
                         three_d,
                         &info,
@@ -230,6 +235,12 @@ impl Panel3dView {
         self.mesh_updated = false;
     }
 }
+/// True when the paint callback's viewport covers at least one pixel in each direction.
+fn has_visible_area(info: &egui::PaintCallbackInfo) -> bool {
+    let vp = info.viewport_in_pixels();
+    vp.width_px > 0 && vp.height_px > 0
+}
+
 ///
 /// Translates from egui input to three-d input
 ///

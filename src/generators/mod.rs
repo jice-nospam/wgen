@@ -6,6 +6,7 @@ mod mid_point;
 mod mudslide;
 mod normalize;
 mod resample;
+mod thermal_erosion;
 mod water_erosion;
 
 use std::sync::mpsc::Sender;
@@ -18,6 +19,7 @@ pub use mid_point::{gen_mid_point, render_mid_point, MidPointConf};
 pub use mudslide::{gen_mudslide, render_mudslide, MudSlideConf};
 pub use normalize::{gen_normalize, NormalizeConf};
 pub use resample::{add_upsampled, bilinear, downsample, work_size};
+pub use thermal_erosion::{gen_thermal_erosion, render_thermal_erosion, ThermalErosionConf};
 pub use water_erosion::{gen_water_erosion, render_water_erosion, WaterErosionConf};
 
 use crate::ThreadMessage;

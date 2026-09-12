@@ -2,10 +2,16 @@
 
 ## [0.4.1] - Unreleased
 
+### Added
+
+- ThermalErosion generator: crumbles slopes steeper than a talus threshold into scree, mass
+  conserving, resolution independent (runs on a working grid like WaterErosion)
+
 ### Changed
 
 - Better, faster and resolution independant WaterErosion
 - MidPoint is resolution independant
+- MudSlide is kept for existing projects; its hover text and the README now point at ThermalErosion
 
 ### Fixed
 

@@ -2,6 +2,10 @@
 
 ## [0.4.1] - Unreleased
 
+### Changed
+
+- Better, faster and resolution independant WaterErosion
+
 ### Fixed
 
 - project files saved by a previous version can be loaded again (any older version loads, a newer
@@ -22,6 +26,9 @@
   squashed the mask vertically when wider than tall
 - panic `The absolute aspect ratio cannot be zero` when moving or resizing the window
 - Island progress bar used the map width instead of its height on non-square exports
+- WaterErosion parameters were measured in pixels, so an export looked nothing like the preview;
+  drops lost all their speed on the slightest climb; the erosion brush was applied half a cell off
+  its own position
 
 ### Changed
 
@@ -32,6 +39,9 @@
 - log timestamps share one clock across threads
 - editing a step, the seed or Clear while the generator is computing interrupts the running step
   instead of waiting for it to finish (export is unaffected)
+- WaterErosion runs on a working grid of at most its `resolution` setting and scales the result up,
+  so the export gets the erosion seen in the preview and takes seconds instead of minutes at large
+  sizes; existing projects will look slightly different
 
 ## [0.4.0] - 2025-03-16
 

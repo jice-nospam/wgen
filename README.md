@@ -33,7 +33,7 @@ The current version features those generators :
 - Normalize : scales the heightmap back to the range 0.0..1.0. Some generators work better with a normalized heightmap. Check your heightmap values range in the 2D preview.
 - LandMass : scale the terrain so that a defined proportion is above a defined water level. Also applies a x^3 curve above water level to have a nice plain/mountain ratio and can lower underwater terrain to have a crisp coast line
 - MudSlide : smoothen the terrain by simulating earth sliding along slopes
-- WaterErosion : carves rivers by simulating rain drops dragging earth along slopes
+- WaterErosion : carves rivers by simulating rain drops dragging earth along slopes. Drops spawning below `water level` are skipped and a drop reaching it stops there
 - Island : lower the altitude along the borders of the map
 
 ## Masks

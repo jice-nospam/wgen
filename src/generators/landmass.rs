@@ -1,7 +1,7 @@
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 
-use super::{normalize, Progress};
+use super::{normalize, par_rows, Progress};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct LandMassConf {
@@ -66,23 +66,23 @@ pub fn gen_landmass(
     conf: &LandMassConf,
     progress: &mut Progress,
 ) {
-    let mut height_count: [f32; 256] = [0.0; 256];
+    let mut height_count: [usize; 256] = [0; 256];
     normalize(hmap, 0.0, 1.0);
     for y in 0..size.1 {
         let yoff = y * size.0;
         for x in 0..size.0 {
             let h = hmap[x + yoff];
             let ih = (h * 255.0) as usize;
-            height_count[ih] += 1.0;
+            height_count[ih] += 1;
         }
         if !progress.report(0.33 * y as f32 / size.1 as f32) {
             return;
         }
     }
     let mut water_level = 0;
-    let mut water_cells = 0.0;
+    let mut water_cells = 0;
     let target_water_cells = (size.0 * size.1) as f32 * (1.0 - conf.land_proportion);
-    while water_level < 256 && water_cells < target_water_cells {
+    while water_level < 256 && (water_cells as f32) < target_water_cells {
         water_cells += height_count[water_level];
         water_level += 1;
     }
@@ -91,35 +91,41 @@ pub fn gen_landmass(
     let land_coef = (1.0 - conf.water_level) / (1.0 - new_water_level);
     let water_coef = conf.water_level / new_water_level;
     // water level should be raised/lowered to newWaterLevel
-    for y in 0..size.1 {
-        let yoff = y * size.0;
-        for x in 0..size.0 {
-            let mut h = hmap[x + yoff];
-            if h > new_water_level {
-                h = conf.water_level + (h - new_water_level) * land_coef;
-            } else {
-                h = h * water_coef - conf.shore_height;
-            }
-            hmap[x + yoff] = h;
-        }
-        if !progress.report(0.33 + 0.33 * y as f32 / size.1 as f32) {
-            return;
-        }
+    if !par_rows(size.0, hmap, progress, (0.33, 0.66), |_, row| {
+        landmass_row_rescale(row, new_water_level, land_coef, water_coef, conf)
+    }) {
+        return;
     }
     // fix land/mountain ratio using h^plain_factor curve above sea level
-    for y in 0..size.1 {
-        let yoff = y * size.0;
-        for x in 0..size.0 {
-            let mut h = hmap[x + yoff];
-            if h >= conf.water_level {
-                let coef = (h - conf.water_level) / (1.0 - conf.water_level);
-                let coef = coef.powf(conf.plain_factor);
-                h = conf.water_level + coef * (1.0 - conf.water_level);
-                hmap[x + y * size.0] = h;
-            }
+    par_rows(size.0, hmap, progress, (0.66, 1.0), |_, row| {
+        landmass_row_plain(row, conf)
+    });
+}
+
+/// moves the found water level to `conf.water_level`, stretching land and sea separately
+fn landmass_row_rescale(
+    row: &mut [f32],
+    new_water_level: f32,
+    land_coef: f32,
+    water_coef: f32,
+    conf: &LandMassConf,
+) {
+    for h in row {
+        if *h > new_water_level {
+            *h = conf.water_level + (*h - new_water_level) * land_coef;
+        } else {
+            *h = *h * water_coef - conf.shore_height;
         }
-        if !progress.report(0.66 + 0.33 * y as f32 / size.1 as f32) {
-            return;
+    }
+}
+
+/// applies the h^plain_factor curve above sea level
+fn landmass_row_plain(row: &mut [f32], conf: &LandMassConf) {
+    for h in row {
+        if *h >= conf.water_level {
+            let coef = (*h - conf.water_level) / (1.0 - conf.water_level);
+            let coef = coef.powf(conf.plain_factor);
+            *h = conf.water_level + coef * (1.0 - conf.water_level);
         }
     }
 }
@@ -143,5 +149,18 @@ mod tests {
                 land_proportion
             );
         }
+    }
+
+    #[test]
+    fn landmass_moves_the_water_level_to_the_requested_share() {
+        let conf = LandMassConf {
+            land_proportion: 0.5,
+            water_level: 0.12,
+            ..Default::default()
+        };
+        let mut h: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
+        gen_landmass((16, 16), &mut h, &conf, &mut Progress::headless());
+        let land = h.iter().filter(|&&v| v >= 0.12).count();
+        assert!((120..=136).contains(&land), "{land} land cells");
     }
 }

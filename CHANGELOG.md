@@ -13,6 +13,8 @@
 - Better, faster and resolution independant WaterErosion
 - MidPoint is resolution independant
 - MudSlide is kept for existing projects; its hover text and the README now point at ThermalErosion
+- LandMass, Island, MudSlide, Hills and Fbm run on all cores through one shared row-parallel helper;
+  same output as before
 
 ### Fixed
 

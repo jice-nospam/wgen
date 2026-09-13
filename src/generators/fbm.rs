@@ -2,7 +2,7 @@ use eframe::egui;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use serde::{Deserialize, Serialize};
 
-use super::Progress;
+use super::{par_rows, Progress};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct FbmConf {
@@ -88,35 +88,12 @@ pub fn gen_fbm(
 ) {
     let xcoef = conf.mulx / 400.0;
     let ycoef = conf.muly / 400.0;
-    let num_threads = num_cpus::get();
-    // only chunk 0 reports progress; on cancel it stops while the other chunks finish their rows
-    let mut progress = Some(progress);
-    std::thread::scope(|s| {
-        // at least one row per job : a small preview on a many-core machine must not get a zero-sized chunk
-        let size_per_job = (size.1 / num_threads).max(1);
-        for (i, chunk) in hmap.chunks_mut(size_per_job * size.0).enumerate() {
-            let fbm = Fbm::<Perlin>::new(seed as u32).set_octaves(conf.octaves as usize);
-            let mut chunk_progress = if i == 0 { progress.take() } else { None };
-            s.spawn(move || {
-                let yoffset = i * size_per_job;
-                let lasty = size_per_job.min(size.1 - yoffset);
-                for y in 0..lasty {
-                    let f1 = ((y + yoffset) as f32 * 512.0 / size.1 as f32 + conf.addy) * ycoef;
-                    let mut offset = y * size.0;
-                    for x in 0..size.0 {
-                        let f0 = (x as f32 * 512.0 / size.0 as f32 + conf.addx) * xcoef;
-                        let value =
-                            conf.delta + fbm.get([f0 as f64, f1 as f64]) as f32 * conf.scale;
-                        chunk[offset] += value;
-                        offset += 1;
-                    }
-                    if let Some(progress) = chunk_progress.as_mut() {
-                        if !progress.report((y + 1) as f32 / size_per_job as f32) {
-                            break;
-                        }
-                    }
-                }
-            });
+    let fbm = Fbm::<Perlin>::new(seed as u32).set_octaves(conf.octaves as usize);
+    par_rows(size.0, hmap, progress, (0.0, 1.0), |y, row| {
+        let f1 = (y as f32 * 512.0 / size.1 as f32 + conf.addy) * ycoef;
+        for (x, h) in row.iter_mut().enumerate() {
+            let f0 = (x as f32 * 512.0 / size.0 as f32 + conf.addx) * xcoef;
+            *h += conf.delta + fbm.get([f0 as f64, f1 as f64]) as f32 * conf.scale;
         }
     });
 }
@@ -134,5 +111,21 @@ mod tests {
         gen_fbm(7, (8, 2), &mut b, &conf, &mut Progress::headless());
         assert_eq!(a, b);
         assert!(a.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn fbm_cell_matches_direct_noise_evaluation() {
+        let conf = FbmConf::default();
+        let mut h = vec![0.0; 4 * 4];
+        gen_fbm(5, (4, 4), &mut h, &conf, &mut Progress::headless());
+        let fbm = Fbm::<Perlin>::new(5).set_octaves(conf.octaves as usize);
+        for y in 0..4 {
+            let f1 = (y as f32 * 512.0 / 4.0 + conf.addy) * (conf.muly / 400.0);
+            for x in 0..4 {
+                let f0 = (x as f32 * 512.0 / 4.0 + conf.addx) * (conf.mulx / 400.0);
+                let expected = conf.delta + fbm.get([f0 as f64, f1 as f64]) as f32 * conf.scale;
+                assert_eq!(h[x + y * 4], expected, "cell ({x}, {y})");
+            }
+        }
     }
 }

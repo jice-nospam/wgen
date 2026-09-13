@@ -29,14 +29,13 @@ impl Default for LandMassConf {
 pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
     ui.horizontal(|ui| {
         ui.label("land proportion")
-            .on_hover_text("what proportion of the map should be above water");
+            .on_hover_text("Share of the map that ends up above water");
         ui.add(
             egui::DragValue::new(&mut conf.land_proportion)
                 .speed(0.01)
                 .range(0.0..=1.0),
         );
-        ui.label("water level")
-            .on_hover_text("height of the water plane");
+        ui.label("water level").on_hover_text("Height of the sea");
         ui.add(
             egui::DragValue::new(&mut conf.water_level)
                 .speed(0.01)
@@ -45,14 +44,14 @@ pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
     });
     ui.horizontal(|ui| {
         ui.label("plain factor")
-            .on_hover_text("increase for sharper mountains and flatter plains");
+            .on_hover_text("Higher = flatter plains and sharper mountains");
         ui.add(
             egui::DragValue::new(&mut conf.plain_factor)
                 .speed(0.01)
                 .range(1.0..=4.0),
         );
         ui.label("shore height")
-            .on_hover_text("lower underwater land by this value");
+            .on_hover_text("How far the land under the sea is pushed down");
         ui.add(
             egui::DragValue::new(&mut conf.shore_height)
                 .speed(0.01)
@@ -138,7 +137,11 @@ mod tests {
             };
             let mut h: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
             gen_landmass((8, 8), &mut h, &conf, &mut Progress::headless());
-            assert!(h.iter().all(|v| v.is_finite()), "NaN at {}", land_proportion);
+            assert!(
+                h.iter().all(|v| v.is_finite()),
+                "NaN at {}",
+                land_proportion
+            );
         }
     }
 }

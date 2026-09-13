@@ -31,19 +31,24 @@ impl Default for FbmConf {
 
 pub fn render_fbm(ui: &mut egui::Ui, conf: &mut FbmConf) {
     ui.horizontal(|ui| {
-        ui.label("scale x");
+        ui.label("scale x").on_hover_text(
+            "Horizontal zoom of the noise: higher packs more, smaller features across the map",
+        );
         ui.add(
             egui::DragValue::new(&mut conf.mulx)
                 .speed(0.1)
                 .range(0.0..=100.0),
         );
-        ui.label("y");
+        ui.label("y").on_hover_text(
+            "Vertical zoom of the noise: higher packs more, smaller features across the map",
+        );
         ui.add(
             egui::DragValue::new(&mut conf.muly)
                 .speed(0.1)
                 .range(0.0..=100.0),
         );
-        ui.label("octaves");
+        ui.label("octaves")
+            .on_hover_text("Layers of ever finer detail: more = richer but slower");
         ui.add(
             egui::DragValue::new(&mut conf.octaves)
                 .speed(0.5)
@@ -51,19 +56,21 @@ pub fn render_fbm(ui: &mut egui::Ui, conf: &mut FbmConf) {
         );
     });
     ui.horizontal(|ui| {
-        ui.label("offset x");
+        ui.label("offset x")
+            .on_hover_text("Slides the noise sideways to look at another part of it");
         ui.add(
             egui::DragValue::new(&mut conf.addx)
                 .speed(0.1)
                 .range(0.0..=200.0),
         );
-        ui.label("y");
+        ui.label("y")
+            .on_hover_text("Slides the noise up or down to look at another part of it");
         ui.add(
             egui::DragValue::new(&mut conf.addy)
                 .speed(0.1)
                 .range(0.0..=200.0),
         );
-        ui.label("scale");
+        ui.label("scale").on_hover_text("Height of the bumps");
         ui.add(
             egui::DragValue::new(&mut conf.scale)
                 .speed(0.01)

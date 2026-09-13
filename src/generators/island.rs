@@ -16,7 +16,9 @@ impl Default for IslandConf {
 
 pub fn render_island(ui: &mut egui::Ui, conf: &mut IslandConf) {
     ui.horizontal(|ui| {
-        ui.label("coast range %");
+        ui.label("coast range %").on_hover_text(
+            "Width of the band along the edges where the land sinks into the sea, in % of the map",
+        );
         ui.add(
             egui::DragValue::new(&mut conf.coast_range)
                 .speed(0.1)

@@ -24,13 +24,15 @@ impl Default for MudSlideConf {
 
 pub fn render_mudslide(ui: &mut egui::Ui, conf: &mut MudSlideConf) {
     ui.horizontal(|ui| {
-        ui.label("iterations");
+        ui.label("iterations")
+            .on_hover_text("How many smoothing passes to run: more = softer terrain");
         ui.add(
             egui::DragValue::new(&mut conf.iterations)
                 .speed(0.5)
                 .range(1.0..=10.0),
         );
-        ui.label("max altitude");
+        ui.label("max altitude")
+            .on_hover_text("Land above this height is left untouched");
         ui.add(
             egui::DragValue::new(&mut conf.max_erosion_alt)
                 .speed(0.01)
@@ -38,13 +40,15 @@ pub fn render_mudslide(ui: &mut egui::Ui, conf: &mut MudSlideConf) {
         );
     });
     ui.horizontal(|ui| {
-        ui.label("strength");
+        ui.label("strength")
+            .on_hover_text("How much each pass softens the slopes");
         ui.add(
             egui::DragValue::new(&mut conf.strength)
                 .speed(0.01)
                 .range(0.0..=1.0),
         );
-        ui.label("water level");
+        ui.label("water level")
+            .on_hover_text("Land below this height is left untouched");
         ui.add(
             egui::DragValue::new(&mut conf.water_level)
                 .speed(0.01)

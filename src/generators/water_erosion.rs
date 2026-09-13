@@ -82,14 +82,14 @@ impl Default for WaterErosionConf {
 pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
     ui.horizontal(|ui| {
         ui.label("drop amount")
-            .on_hover_text("Amount of drops simulated");
+            .on_hover_text("How much rain falls on the map: more = more erosion, slower");
         ui.add(
             egui::DragValue::new(&mut conf.drop_amount)
                 .speed(0.01)
                 .range(0.1..=2.0),
         );
         ui.label("erosion strength")
-            .on_hover_text("How much soil is eroded by the drop");
+            .on_hover_text("How much ground each drop digs out");
         ui.add(
             egui::DragValue::new(&mut conf.erosion_strength)
                 .speed(0.01)
@@ -98,14 +98,14 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
     });
     ui.horizontal(|ui| {
         ui.label("drop capacity")
-            .on_hover_text("How much sediment a drop can contain");
+            .on_hover_text("How much soil a drop can carry before it starts leaving it behind");
         ui.add(
             egui::DragValue::new(&mut conf.capacity)
                 .speed(0.5)
                 .range(2.0..=32.0),
         );
         ui.label("inertia")
-            .on_hover_text("Inertia of the drop. Increase for smoother result");
+            .on_hover_text("How straight the drops run: higher = smoother, longer channels");
         ui.add(
             egui::DragValue::new(&mut conf.inertia)
                 .speed(0.01)
@@ -114,14 +114,14 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
     });
     ui.horizontal(|ui| {
         ui.label("deposition")
-            .on_hover_text("Amount of sediment deposited");
+            .on_hover_text("How quickly a drop lets go of the soil it carries");
         ui.add(
             egui::DragValue::new(&mut conf.deposition)
                 .speed(0.01)
                 .range(0.01..=1.0),
         );
         ui.label("evaporation")
-            .on_hover_text("How fast the drop evaporate. Increase for smoother results");
+            .on_hover_text("How fast drops dry up: higher = shorter, gentler channels");
         ui.add(
             egui::DragValue::new(&mut conf.evaporation)
                 .speed(0.01)
@@ -129,14 +129,15 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
         );
     });
     ui.horizontal(|ui| {
-        ui.label("radius").on_hover_text("Erosion radius");
+        ui.label("radius")
+            .on_hover_text("Width of the groove a drop carves");
         ui.add(
             egui::DragValue::new(&mut conf.radius)
                 .speed(0.1)
                 .range(1.0..=10.0),
         );
         ui.label("minimum slope")
-            .on_hover_text("Minimum height for the drop capacity calculation");
+            .on_hover_text("Keeps drops digging on nearly flat ground: higher = more");
         ui.add(
             egui::DragValue::new(&mut conf.min_slope)
                 .speed(0.001)
@@ -149,17 +150,15 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
 /// water level and the resolution the drops run at
 fn render_water_row(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
     ui.horizontal(|ui| {
-        ui.label("water level").on_hover_text(
-            "Drops spawning below this height are skipped; a drop reaching it stops",
-        );
+        ui.label("water level")
+            .on_hover_text("Sea level: drops stop when they reach it and none start below it");
         ui.add(
             egui::DragValue::new(&mut conf.water_level)
                 .speed(0.01)
                 .range(-10.0..=10.0),
         );
-        ui.label("resolution").on_hover_text(
-            "Grid the drops run on; the export at any size gets the erosion of a preview of this size. 2048 is ~16x slower than 512",
-        );
+        ui.label("resolution")
+            .on_hover_text("Level of detail the erosion works at: higher = finer, much slower");
         egui::ComboBox::from_id_salt("work_res")
             .selected_text(format!("{}", conf.work_res))
             .show_ui(ui, |ui| {

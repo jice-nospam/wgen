@@ -28,9 +28,10 @@ const HILLSLOPE_AREA: f32 = 1e-4;
 /// share of the excess a talus pass moves (ThermalErosion's `strength`)
 const TALUS_STRENGTH: f32 = 0.5;
 /// plain hover text of the strength parameter
-const STRENGTH_HELP: &str = "How fast rivers cut down: 0 leaves the terrain untouched, 1 grades the main rivers to the sea in a few iterations";
+const STRENGTH_HELP: &str =
+    "How fast rivers cut into the land: 0 = no change, 1 = deep valleys in a few rounds";
 /// plain hover text of the talus parameter
-const TALUS_HELP: &str = "Between two incisions, slopes steeper than this crumble into the valleys, as in ThermalErosion: 0 keeps every slope, 1 crumbles them all";
+const TALUS_HELP: &str = "How much the valley sides crumble: 0 = not at all, 1 = every slope";
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct FluvialErosionConf {
@@ -80,7 +81,7 @@ pub fn render_fluvial_erosion(ui: &mut egui::Ui, conf: &mut FluvialErosionConf) 
         )
         .on_hover_text(TALUS_HELP);
         ui.label("iterations")
-            .on_hover_text("Time steps; the river network reorganises a little at each");
+            .on_hover_text("How many rounds to run: more = deeper, more settled rivers, slower");
         ui.add(
             egui::DragValue::new(&mut conf.iterations)
                 .speed(1)
@@ -93,24 +94,22 @@ pub fn render_fluvial_erosion(ui: &mut egui::Ui, conf: &mut FluvialErosionConf) 
 fn render_fluvial_row(ui: &mut egui::Ui, conf: &mut FluvialErosionConf) {
     ui.horizontal(|ui| {
         ui.label("uplift").on_hover_text(
-            "Height added to the land each iteration; the sea stays put, so relief settles where erosion balances uplift",
+            "How much the land rises each round while the rivers cut it: higher = steeper relief",
         );
         ui.add(
             egui::DragValue::new(&mut conf.uplift)
                 .speed(0.0001)
                 .range(0.0..=0.01),
         );
-        ui.label("water level").on_hover_text(
-            "Cells at or below this height are the sea: fixed, and where every river ends; the map border drains down to this height too",
-        );
+        ui.label("water level")
+            .on_hover_text("Sea level: rivers end here and the sea itself never changes");
         ui.add(
             egui::DragValue::new(&mut conf.water_level)
                 .speed(0.01)
                 .range(-10.0..=10.0),
         );
-        ui.label("resolution").on_hover_text(
-            "Grid the iterations run on; the export at any size gets the rivers of a preview of this size. 2048 is ~64x slower than 512",
-        );
+        ui.label("resolution")
+            .on_hover_text("Level of detail the rivers are carved at: higher = finer, much slower");
         egui::ComboBox::from_id_salt("fluvial_work_res")
             .selected_text(format!("{}", conf.work_res))
             .show_ui(ui, |ui| {
@@ -389,7 +388,10 @@ mod tests {
         for i in 0..256 {
             assert!(out[i] <= input[i] + 1e-6, "cell {i} rose");
             if is_border(i) {
-                assert!(out[i] < input[i], "border cell {i} did not drain to the base level");
+                assert!(
+                    out[i] < input[i],
+                    "border cell {i} did not drain to the base level"
+                );
             }
         }
         let sum_in: f32 = input.iter().sum();
@@ -587,7 +589,10 @@ mod tests {
         };
         let out = erode(size, &input, &conf);
         let stats = calib::print_stats("fluvial defaults on fbm 128", &input, &out);
-        assert!(out.iter().all(|h| *h <= 1.0 + 1e-6), "a cell rose above the input range");
+        assert!(
+            out.iter().all(|h| *h <= 1.0 + 1e-6),
+            "a cell rose above the input range"
+        );
         // the accepted render measured 0.38 and 86.5 % here : ±50 % on the drop, half the share
         assert!(
             (0.19..=0.57).contains(&stats.max_drop),

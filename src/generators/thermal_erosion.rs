@@ -57,14 +57,14 @@ pub fn render_thermal_erosion(ui: &mut egui::Ui, conf: &mut ThermalErosionConf) 
         )
         .on_hover_text(TALUS_HELP);
         ui.label("strength")
-            .on_hover_text("Share of the excess moved per pass; above 0.5 a pass can overshoot");
+            .on_hover_text("How much of the loose material slides down each pass");
         ui.add(
             egui::DragValue::new(&mut conf.strength)
                 .speed(0.01)
                 .range(0.0..=0.5),
         );
         ui.label("iterations")
-            .on_hover_text("Passes on a 512 map; each pass moves material one cell");
+            .on_hover_text("How many passes to run: more = smoother, slower");
         ui.add(
             egui::DragValue::new(&mut conf.iterations)
                 .speed(1)
@@ -77,16 +77,15 @@ pub fn render_thermal_erosion(ui: &mut egui::Ui, conf: &mut ThermalErosionConf) 
 fn render_thermal_row(ui: &mut egui::Ui, conf: &mut ThermalErosionConf) {
     ui.horizontal(|ui| {
         ui.label("water level").on_hover_text(
-            "Cells below this height do not crumble; material can still settle on them",
+            "Land below this height does not crumble, but still catches what slides down",
         );
         ui.add(
             egui::DragValue::new(&mut conf.water_level)
                 .speed(0.01)
                 .range(-10.0..=10.0),
         );
-        ui.label("resolution").on_hover_text(
-            "Grid the passes run on; the export at any size gets the erosion of a preview of this size. 2048 is ~64x slower than 512",
-        );
+        ui.label("resolution")
+            .on_hover_text("Level of detail the erosion works at: higher = finer, much slower");
         egui::ComboBox::from_id_salt("thermal_work_res")
             .selected_text(format!("{}", conf.work_res))
             .show_ui(ui, |ui| {

@@ -25,13 +25,15 @@ impl Default for HillsConf {
 
 pub fn render_hills(ui: &mut egui::Ui, conf: &mut HillsConf) {
     ui.horizontal(|ui| {
-        ui.label("count");
+        ui.label("count")
+            .on_hover_text("How many hills to scatter over the map");
         ui.add(
             egui::DragValue::new(&mut conf.nb_hill)
                 .speed(1.0)
                 .range(1.0..=5000.0),
         );
-        ui.label("radius");
+        ui.label("radius")
+            .on_hover_text("Typical size of a hill, relative to the map size");
         ui.add(
             egui::DragValue::new(&mut conf.base_radius)
                 .speed(1.0)
@@ -39,7 +41,9 @@ pub fn render_hills(ui: &mut egui::Ui, conf: &mut HillsConf) {
         );
     });
     ui.horizontal(|ui| {
-        ui.label("radius variation");
+        ui.label("radius variation").on_hover_text(
+            "How much hill sizes vary: 0 = all the same, 1 = from tiny to twice the size",
+        );
         ui.add(
             egui::DragValue::new(&mut conf.radius_var)
                 .speed(0.01)

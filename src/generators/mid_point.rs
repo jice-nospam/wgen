@@ -26,20 +26,20 @@ impl Default for MidPointConf {
 
 pub fn render_mid_point(ui: &mut egui::Ui, conf: &mut MidPointConf) {
     ui.horizontal(|ui| {
-        ui.label("roughness");
+        ui.label("roughness")
+            .on_hover_text("How jagged the terrain is: lower = rolling, higher = rocky");
         ui.add(
             egui::DragValue::new(&mut conf.roughness)
                 .speed(0.01)
                 .range(0.01..=1.0),
         );
-        ui.label("persistence");
+        ui.label("persistence").on_hover_text(
+            "How much the small details keep of that roughness: lower = smooth, higher = busy",
+        );
         ui.add(
             egui::DragValue::new(&mut conf.persistence)
                 .speed(0.01)
                 .range(0.1..=1.0),
-        )
-        .on_hover_text(
-            "How much of the roughness each finer octave keeps (0.5 = classic diamond-square)",
         );
     });
 }

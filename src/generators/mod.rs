@@ -1,4 +1,8 @@
+#[cfg(test)]
+mod calib;
 mod fbm;
+mod flow;
+mod fluvial_erosion;
 mod hills;
 mod island;
 mod landmass;
@@ -12,6 +16,8 @@ mod water_erosion;
 use std::sync::mpsc::Sender;
 
 pub use fbm::{gen_fbm, render_fbm, FbmConf};
+pub use flow::{receiver_distance, FlowNet};
+pub use fluvial_erosion::{gen_fluvial_erosion, render_fluvial_erosion, FluvialErosionConf};
 pub use hills::{gen_hills, render_hills, HillsConf};
 pub use island::{gen_island, render_island, IslandConf};
 pub use landmass::{gen_landmass, render_landmass, LandMassConf};

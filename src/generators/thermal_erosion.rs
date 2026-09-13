@@ -98,22 +98,23 @@ fn render_thermal_row(ui: &mut egui::Ui, conf: &mut ThermalErosionConf) {
     });
 }
 
-/// the conf converted to the working grid : `scale` is working cells per reference cell
-struct ThermalParams {
+/// the conf converted to the working grid : `scale` is working cells per reference cell.
+/// Shared with FluvialErosion, which runs `slide_pass` between two incisions
+pub(super) struct ThermalParams {
     /// per-cell height difference above which an axis neighbour receives material
-    threshold: f32,
+    pub(super) threshold: f32,
     /// the same for a diagonal neighbour, √2 further away
-    diag_threshold: f32,
-    strength: f32,
-    passes: usize,
-    water_level: f32,
+    pub(super) diag_threshold: f32,
+    pub(super) strength: f32,
+    pub(super) passes: usize,
+    pub(super) water_level: f32,
 }
 
 impl ThermalParams {
     /// `talus` maps to the threshold through `TALUS_MAX * (1 - talus)²` : the square spreads the
     /// visible part of the effect (thresholds below a stock map's median slope) over most of the
     /// 0..1 range instead of its last tenth
-    fn new(conf: &ThermalErosionConf, scale: f32) -> Self {
+    pub(super) fn new(conf: &ThermalErosionConf, scale: f32) -> Self {
         let threshold = TALUS_MAX * (1.0 - conf.talus).powi(2) / scale;
         Self {
             threshold,
@@ -160,9 +161,12 @@ fn slide_passes(
     progress: &mut Progress,
 ) -> bool {
     let mut out = hmap.to_vec();
+    let passes = params.passes as f32;
     for pass in 0..params.passes {
         out.copy_from_slice(hmap);
-        if !slide_pass(size, hmap, &mut out, params, pass, progress) {
+        let from = pass as f32 / passes;
+        let to = (pass + 1) as f32 / passes;
+        if !slide_pass(size, hmap, &mut out, params, from, to, progress) {
             return false;
         }
         hmap.copy_from_slice(&out);
@@ -171,13 +175,15 @@ fn slide_passes(
 }
 
 /// one pass reading `hmap` and scattering into `out`, which starts as a copy of `hmap`;
-/// false when the step was cancelled
-fn slide_pass(
+/// reports progress from `progress_from` to `progress_to` across the rows; false when the step
+/// was cancelled
+pub(super) fn slide_pass(
     size: (usize, usize),
     hmap: &[f32],
     out: &mut [f32],
     params: &ThermalParams,
-    pass: usize,
+    progress_from: f32,
+    progress_to: f32,
     progress: &mut Progress,
 ) -> bool {
     let mut excess = [0.0f32; 9];
@@ -222,7 +228,7 @@ fn slide_pass(
                 }
             }
         }
-        let p = (pass as f32 + y as f32 / size.1 as f32) / params.passes as f32;
+        let p = progress_from + (progress_to - progress_from) * y as f32 / size.1 as f32;
         if !progress.report(p) {
             return false;
         }

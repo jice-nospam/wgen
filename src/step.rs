@@ -4,11 +4,12 @@ use eframe::egui;
 use serde::{Deserialize, Serialize};
 
 use crate::generators::{
-    gen_fbm, gen_hills, gen_island, gen_landmass, gen_mid_point, gen_mudslide, gen_normalize,
-    gen_thermal_erosion, gen_water_erosion, render_fbm, render_hills, render_island,
-    render_landmass, render_mid_point, render_mudslide, render_thermal_erosion,
-    render_water_erosion, FbmConf, HillsConf, IslandConf, LandMassConf, MidPointConf, MudSlideConf,
-    NormalizeConf, Progress, ThermalErosionConf, WaterErosionConf,
+    gen_fbm, gen_fluvial_erosion, gen_hills, gen_island, gen_landmass, gen_mid_point,
+    gen_mudslide, gen_normalize, gen_thermal_erosion, gen_water_erosion, render_fbm,
+    render_fluvial_erosion, render_hills, render_island, render_landmass, render_mid_point,
+    render_mudslide, render_thermal_erosion, render_water_erosion, FbmConf, FluvialErosionConf,
+    HillsConf, IslandConf, LandMassConf, MidPointConf, MudSlideConf, NormalizeConf, Progress,
+    ThermalErosionConf, WaterErosionConf,
 };
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -21,13 +22,14 @@ pub enum StepType {
     MudSlide(MudSlideConf),
     ThermalErosion(ThermalErosionConf),
     WaterErosion(WaterErosionConf),
+    FluvialErosion(FluvialErosionConf),
     Island(IslandConf),
     MidPoint(MidPointConf),
 }
 
 impl StepType {
     /// every generator with its default configuration, in dropdown order
-    pub fn all() -> [StepType; 9] {
+    pub fn all() -> [StepType; 10] {
         [
             StepType::Hills(HillsConf::default()),
             StepType::Fbm(FbmConf::default()),
@@ -37,6 +39,7 @@ impl StepType {
             StepType::MudSlide(MudSlideConf::default()),
             StepType::ThermalErosion(ThermalErosionConf::default()),
             StepType::WaterErosion(WaterErosionConf::default()),
+            StepType::FluvialErosion(FluvialErosionConf::default()),
             StepType::Island(IslandConf::default()),
         ]
     }
@@ -51,6 +54,7 @@ impl StepType {
             StepType::MudSlide(_) => "MudSlide",
             StepType::ThermalErosion(_) => "ThermalErosion",
             StepType::WaterErosion(_) => "WaterErosion",
+            StepType::FluvialErosion(_) => "FluvialErosion",
             StepType::Island(_) => "Island",
         }
     }
@@ -69,6 +73,9 @@ impl StepType {
             }
             StepType::ThermalErosion(_) => "Crumble slopes steeper than the talus into scree",
             StepType::WaterErosion(_) => "Simulate rain falling and carving rivers",
+            StepType::FluvialErosion(_) => {
+                "Carve a dendritic river network with the stream-power law (grid based, pairs with ThermalErosion)"
+            }
             StepType::Island(_) => "Lower height on the map borders",
         }
     }
@@ -83,6 +90,7 @@ impl StepType {
             StepType::MudSlide(conf) => render_mudslide(ui, conf),
             StepType::ThermalErosion(conf) => render_thermal_erosion(ui, conf),
             StepType::WaterErosion(conf) => render_water_erosion(ui, conf),
+            StepType::FluvialErosion(conf) => render_fluvial_erosion(ui, conf),
             StepType::Island(conf) => render_island(ui, conf),
         }
     }
@@ -98,6 +106,7 @@ impl StepType {
             StepType::MudSlide(conf) => gen_mudslide(size, h, conf, progress),
             StepType::ThermalErosion(conf) => gen_thermal_erosion(size, h, conf, progress),
             StepType::WaterErosion(conf) => gen_water_erosion(seed, size, h, conf, progress),
+            StepType::FluvialErosion(conf) => gen_fluvial_erosion(size, h, conf, progress),
             StepType::Island(conf) => gen_island(size, h, conf, progress),
         }
     }
@@ -156,6 +165,7 @@ mod tests {
                 "MudSlide",
                 "ThermalErosion",
                 "WaterErosion",
+                "FluvialErosion",
                 "Island"
             ]
         );

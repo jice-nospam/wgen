@@ -33,8 +33,9 @@ The current version features those generators :
 - Normalize : scales the heightmap back to the range 0.0..1.0. Some generators work better with a normalized heightmap. Check your heightmap values range in the 2D preview.
 - LandMass : scale the terrain so that a defined proportion is above a defined water level. Also applies a x^3 curve above water level to have a nice plain/mountain ratio and can lower underwater terrain to have a crisp coast line
 - MudSlide : smoothen the terrain by simulating earth sliding along slopes. Its strength depends on the preview size, so an export looks different from the preview; prefer ThermalErosion
-- ThermalErosion : crumbles slopes steeper than `talus` into scree, the usual companion of WaterErosion. `talus` goes from 0 (nothing crumbles) to 1 (every slope crumbles). Cells below `water level` do not crumble but still receive material. Runs on a grid of at most `resolution` cells per side, so an export at any size gets the same scree as a preview of that size
+- ThermalErosion : crumbles steep slopes into scree, the usual companion of WaterErosion.
 - WaterErosion : carves rivers by simulating rain drops dragging earth along slopes. Drops spawning below `water level` are skipped and a drop reaching it stops there
+- FluvialErosion : carves a dendritic valley network with the stream-power law, talus crumbling into the valleys as in ThermalErosion
 - Island : lower the altitude along the borders of the map
 
 ## Masks

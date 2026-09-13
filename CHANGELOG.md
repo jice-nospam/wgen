@@ -6,6 +6,7 @@
 
 - ThermalErosion generator: crumbles slopes steeper than a talus threshold into scree, mass
   conserving, resolution independent (runs on a working grid like WaterErosion)
+- FluvialErosion generator: carves a dendritic valley network with the stream-power law, talus crumbling between incisions, optional uplift
 
 ### Changed
 

@@ -34,8 +34,8 @@ impl Project {
     }
 
     pub fn load(file_path: &str) -> Result<Self, String> {
-        let contents =
-            std::fs::read_to_string(file_path).map_err(|e| format!("Unable to read the file : {}", e))?;
+        let contents = std::fs::read_to_string(file_path)
+            .map_err(|e| format!("Unable to read the file : {}", e))?;
         Self::from_ron(&contents)
     }
 

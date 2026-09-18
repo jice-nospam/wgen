@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use eframe::egui;
-
 pub const TEXTEDIT_WIDTH: f32 = 240.0;
 
 #[derive(Clone)]

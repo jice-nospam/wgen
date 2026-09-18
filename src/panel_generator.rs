@@ -1,5 +1,4 @@
-use eframe::egui::{self, CursorIcon, Id, LayerId, Order, Sense};
-use epaint::Color32;
+use egui::{emath::TSTransform, Color32, CursorIcon, Id, LayerId, Order, Sense, UiBuilder};
 
 use crate::{
     generators::HillsConf,
@@ -65,12 +64,16 @@ fn render_step_gui(ui: &mut egui::Ui, id: Id, body: impl FnOnce(&mut egui::Ui)) 
         ui.scope(body);
     } else {
         let layer_id = LayerId::new(Order::Tooltip, id);
-        let response = ui.with_layer_id(layer_id, body).response;
-        ui.output_mut(|i| i.cursor_icon = CursorIcon::Grabbing);
+        let response = ui
+            .scope_builder(UiBuilder::new().layer_id(layer_id), body)
+            .response;
+        ui.ctx()
+            .output_mut(|o| o.cursor_icon = CursorIcon::Grabbing);
         if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
             let mut delta = pointer_pos - response.rect.center();
             delta.x += 60.0;
-            ui.ctx().translate_layer(layer_id, delta);
+            ui.ctx()
+                .transform_layer_shapes(layer_id, TSTransform::from_translation(delta));
             return Some(delta.y);
         }
     }
@@ -180,8 +183,7 @@ impl PanelGenerator {
     ) -> Option<GeneratorAction> {
         let mut action = None;
         let len = self.steps.len();
-        // let dragging = ui.ctx().dragged_id.is_some()
-        let dragging = ui.memory(|m| m.is_anything_being_dragged()) && self.hovered;
+        let dragging = ui.ctx().dragged_id().is_some() && self.hovered;
         let response = ui
             .scope(|ui| {
                 for (i, step) in self.steps.iter_mut().enumerate() {
@@ -196,7 +198,7 @@ impl PanelGenerator {
                                 .on_hover_text("Drag this to change step order");
                             let response = ui.interact(response.rect, item_id, Sense::drag());
                             if response.hovered() {
-                                ui.output_mut(|o| o.cursor_icon = CursorIcon::Grab);
+                                ui.ctx().output_mut(|o| o.cursor_icon = CursorIcon::Grab);
                             }
                             if ui.button("⊗").on_hover_text("Delete this step").clicked() {
                                 *to_remove = Some(i);
@@ -294,16 +296,14 @@ impl PanelGenerator {
         }
         if let Some(i) = to_remove {
             self.steps.remove(i);
-            self.selected_step = self
-                .selected_step
-                .min(self.steps.len().saturating_sub(1));
+            self.selected_step = self.selected_step.min(self.steps.len().saturating_sub(1));
             self.mask_step = None;
             action = Some(GeneratorAction::Regen {
                 delete: Some(i),
                 from: i,
             });
         }
-        if ui.input(|i| i.pointer.any_released()) {
+        if ui.ctx().input(|i| i.pointer.any_released()) {
             if let Some(i) = to_move {
                 if i != self.move_to_pos {
                     let step = self.steps.remove(i);

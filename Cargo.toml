@@ -4,15 +4,13 @@ version = "0.5.0"
 edition = "2021"
 
 [dependencies]
-eframe = "0.29.1"
-epaint = "0.29.1"
-egui_glow = "0.29.1"
-# glow = "0.14.2"
-three-d = { version = "0.18.2", default-features = false }
-image = { version = "0.25.5", default-features = false, features = [
-    "png",
-    "jpeg",
+bevy = { version = "=0.19.1", default-features = false, features = [
+    "std", "async_executor", "bevy_asset", "bevy_log", "bevy_winit", "x11", "wayland",
+    "multi_threaded", "3d_bevy_render",
 ] }
+bevy_egui = { version = "=0.42.0", default-features = false, features = ["render", "default_fonts", "manage_clipboard"] }
+egui = "0.36"
+image = { version = "0.25.5", default-features = false, features = ["png"] }
 exr = "1.5.2"
 rand = "0.9.0"
 noise = { version = "0.9", default-features = false }

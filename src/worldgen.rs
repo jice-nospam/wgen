@@ -3,11 +3,9 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use eframe::egui;
-
 use crate::generators::{get_min_max, Progress};
 pub use crate::step::{Step, StepType};
-use crate::{log, panic_message, ThreadMessage, MASK_SIZE};
+use crate::{log, panic_message, ThreadMessage, Waker, MASK_SIZE};
 
 #[derive(Debug)]
 /// commands sent by the main thread to the world generator thread
@@ -133,7 +131,7 @@ pub fn generator_thread(
     size: usize,
     rx: Receiver<WorldGenCommand>,
     tx: Sender<ThreadMessage>,
-    ctx: egui::Context,
+    wake: Waker,
     invalidation: Invalidation,
 ) {
     let mut wgen = WorldGenerator::new(seed, (size, size));
@@ -201,7 +199,7 @@ pub fn generator_thread(
         };
         let _ = tx.send(msg);
         // wake the UI thread so the message is handled without waiting for user input
-        ctx.request_repaint();
+        wake();
     }
 }
 
@@ -241,7 +239,6 @@ impl WorldGenerator {
     pub fn clear(&mut self) {
         *self = WorldGenerator::new(self.seed, self.world_size);
     }
-
 
     /// preview path : (re)computes step `index` from the output of step `index - 1`, keeping every
     /// step's map so a later step can be recomputed alone
@@ -315,7 +312,6 @@ impl WorldGenerator {
         }
     }
 }
-
 
 fn apply_mask(world_size: (usize, usize), mask: &[f32], prev: Option<&[f32]>, h: &mut [f32]) {
     let mut off = 0;

@@ -10,7 +10,13 @@ use super::{gen_fbm, gen_fluvial_erosion, normalize, FbmConf, FluvialErosionConf
 /// the "Fbm → Normalize" stack : `gen_fbm` with its defaults, normalized to 0..1
 pub fn stock_map(seed: u64, size: (usize, usize)) -> Vec<f32> {
     let mut h = vec![0.0; size.0 * size.1];
-    gen_fbm(seed, size, &mut h, &FbmConf::default(), &mut Progress::headless());
+    gen_fbm(
+        seed,
+        size,
+        &mut h,
+        &FbmConf::default(),
+        &mut Progress::headless(),
+    );
     normalize(&mut h, 0.0, 1.0);
     h
 }

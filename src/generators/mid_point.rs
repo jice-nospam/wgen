@@ -1,4 +1,3 @@
-use eframe::egui;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
@@ -67,10 +66,28 @@ pub fn gen_mid_point(
     for level in 1..=k {
         let amp = conf.roughness * conf.persistence.powi(level as i32 - 1);
         let mut rng = StdRng::seed_from_u64(sub_seed(seed, level));
-        if !square_pass(&mut lattice, n, level, k, amp, &mut rng, &mut done, progress) {
+        if !square_pass(
+            &mut lattice,
+            n,
+            level,
+            k,
+            amp,
+            &mut rng,
+            &mut done,
+            progress,
+        ) {
             return;
         }
-        if !diamond_pass(&mut lattice, n, level, k, amp, &mut rng, &mut done, progress) {
+        if !diamond_pass(
+            &mut lattice,
+            n,
+            level,
+            k,
+            amp,
+            &mut rng,
+            &mut done,
+            progress,
+        ) {
             return;
         }
     }
@@ -224,7 +241,10 @@ mod tests {
         for size in [(64, 64), (100, 100), (16, 32), (32, 16), (1, 1), (2, 3)] {
             let h = run(1, size, &conf);
             let unwritten = h.iter().position(|&v| v == -1e9);
-            assert_eq!(unwritten, None, "size {size:?}: cell {unwritten:?} never written");
+            assert_eq!(
+                unwritten, None,
+                "size {size:?}: cell {unwritten:?} never written"
+            );
             let nan = h.iter().position(|v| v.is_nan());
             assert_eq!(nan, None, "size {size:?}: cell {nan:?} is NaN");
         }

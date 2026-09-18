@@ -12,17 +12,23 @@ mod panel_export;
 mod panel_generator;
 mod panel_maskedit;
 mod panel_save;
+mod preview3d;
 mod project;
 mod step;
 mod worldgen;
 
-use eframe::egui::{self, Visuals};
-use epaint::emath;
+use bevy::camera::CameraUpdateSystems;
+use bevy::log::{Level, LogPlugin};
+use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
+use bevy::winit::{EventLoopProxyWrapper, UpdateMode, WinitSettings, WinitUserEvent};
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use egui::{Frame, Id, LayerId, UiBuilder};
 use exporter::export_heightmap;
 use std::any::Any;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -31,11 +37,17 @@ use panel_3dview::Panel3dView;
 use panel_export::PanelExport;
 use panel_generator::{GeneratorAction, PanelGenerator};
 use panel_save::{PanelSaveLoad, SaveLoadAction};
+use preview3d::PreviewViewport;
 use project::Project;
 use worldgen::{generator_thread, ExportMap, Invalidation, WorldGenCommand, WorldGenerator};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MASK_SIZE: usize = 64;
+/// polling period of the UI while a worker thread runs
+const BUSY_REFRESH: Duration = Duration::from_millis(100);
+
+/// wakes the winit event loop from a worker thread so a `ThreadMessage` is handled at once
+pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
 /// messages sent to the main thread by either world generator or exporter threads
 pub enum ThreadMessage {
@@ -58,32 +70,67 @@ pub enum ThreadMessage {
 }
 
 fn main() {
-    let options = eframe::NativeOptions {
-        multisampling: 8,
-        depth_buffer: 24,
-        renderer: eframe::Renderer::Glow,
-        vsync: true,
-        viewport: egui::ViewportBuilder::default().with_maximized(true),
-        ..Default::default()
-    };
     log(&format!(
         "wgen v{} - {} cpus {} cores",
         VERSION,
         num_cpus::get(),
         num_cpus::get_physical()
     ));
-    eframe::run_native(
-        "wgen",
-        options,
-        Box::new(|cc| Ok(Box::new(MyApp::new(cc)))),
-    )
-    .or_else(|e| {
-        eprintln!("Error: {}", e);
-        Ok::<(), ()>(())
-    })
-    .ok();
+    App::new()
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "wgen".into(),
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(LogPlugin {
+                    level: Level::WARN,
+                    filter: "wgpu=error,naga=warn".into(),
+                    ..default()
+                }),
+        )
+        .add_plugins(EguiPlugin::default())
+        .insert_resource(WinitSettings::desktop_app())
+        .init_resource::<PreviewViewport>()
+        .add_systems(Startup, (setup, preview3d::spawn_cameras).chain())
+        .add_systems(EguiPrimaryContextPass, ui_system)
+        .add_systems(
+            PostUpdate,
+            preview3d::apply_viewport.before(CameraUpdateSystems),
+        )
+        .run();
 }
 
+/// maximises the window and creates `MyApp` with a waker on the event loop
+fn setup(
+    mut commands: Commands,
+    proxy: Res<EventLoopProxyWrapper>,
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
+) {
+    window.set_maximized(true);
+    let p = (*proxy).clone();
+    let wake: Waker = Arc::new(move || {
+        let _ = p.send_event(WinitUserEvent::WakeUp);
+    });
+    commands.insert_resource(MyApp::new(wake));
+}
+
+/// one egui frame
+fn ui_system(
+    mut contexts: EguiContexts,
+    mut app: ResMut<MyApp>,
+    mut vp: ResMut<PreviewViewport>,
+    mut winit: ResMut<WinitSettings>,
+) -> Result {
+    let ctx = contexts.ctx_mut()?;
+    app.update(ctx, &mut vp, &mut winit);
+    Ok(())
+}
+
+#[derive(Resource)]
 struct MyApp {
     /// size in pixels of the 2D preview canvas
     image_size: usize,
@@ -113,7 +160,8 @@ struct MyApp {
     load_save_panel: PanelSaveLoad,
     // thread communication
     /// channel to receive messages from either world generator or exporter
-    thread2main_rx: Receiver<ThreadMessage>,
+    /// (a `Receiver` is not `Sync`, which a resource must be)
+    thread2main_rx: Mutex<Receiver<ThreadMessage>>,
     /// channel to send messages to the world generator thread
     main2wgen_tx: Sender<WorldGenCommand>,
     /// channel to send messages to the main thread from the exporter thread
@@ -123,7 +171,7 @@ struct MyApp {
 }
 
 impl MyApp {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(wake: Waker) -> Self {
         let preview_size = 128;
         let image_size = 790; //368;
         let seed = 0xdeadbeef;
@@ -134,11 +182,17 @@ impl MyApp {
         // main -> generator channel
         let (main2gen_tx, gen_rx) = mpsc::channel();
         let gen_tx = exp2main_tx.clone();
-        let ctx = cc.egui_ctx.clone();
         let invalidation = Invalidation::default();
         let thread_invalidation = invalidation.clone();
         thread::spawn(move || {
-            generator_thread(seed, preview_size, gen_rx, gen_tx, ctx, thread_invalidation);
+            generator_thread(
+                seed,
+                preview_size,
+                gen_rx,
+                gen_tx,
+                wake,
+                thread_invalidation,
+            );
         });
         Self {
             image_size,
@@ -156,7 +210,7 @@ impl MyApp {
             gen_panel: PanelGenerator::default(),
             export_panel: PanelExport::default(),
             load_save_panel: PanelSaveLoad::default(),
-            thread2main_rx,
+            thread2main_rx: Mutex::new(thread2main_rx),
             main2wgen_tx: main2gen_tx,
             exp2main_tx,
             err_msg: None,
@@ -233,8 +287,8 @@ impl MyApp {
             .unwrap();
         self.regen(None, 0);
     }
-    fn render_left_panel(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("Generation").show(ctx, |ui| {
+    fn render_left_panel(&mut self, root: &mut egui::Ui) {
+        egui::Panel::left("Generation").show(root, |ui| {
             ui.label(format!("wgen {}", VERSION));
             ui.separator();
             if self
@@ -319,39 +373,52 @@ impl MyApp {
             self.panel_2d.exit_mask_mode();
         }
     }
-    fn render_central_panel(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Terrain preview");
-            ui.horizontal(|ui| {
-                egui::CollapsingHeader::new("2d preview")
-                    .default_open(true)
-                    .show(ui, |ui| match self.panel_2d.render(ui) {
-                        Some(Panel2dAction::ResizePreview(new_size)) => {
-                            self.gen_panel.exit_mask_mode();
-                            self.resize(new_size);
-                        }
-                        Some(Panel2dAction::MaskCommitted(mask)) => {
-                            if let Some(from) = self.gen_panel.commit_mask(mask) {
-                                self.regen(None, from);
+    /// the previews; the 3D square's rect goes to `vp` so the scene camera follows it
+    fn render_central_panel(&mut self, root: &mut egui::Ui, vp: &mut PreviewViewport) {
+        // transparent: the scene camera's output shows through inside the 3D square, the
+        // panel colour is the egui camera's clear colour
+        let frame = Frame::central_panel(root.style()).fill(egui::Color32::TRANSPARENT);
+        vp.rect = None;
+        vp.pixels_per_point = root.ctx().pixels_per_point();
+        egui::CentralPanel::default_margins()
+            .frame(frame)
+            .show(root, |ui| {
+                ui.heading("Terrain preview");
+                ui.horizontal(|ui| {
+                    egui::CollapsingHeader::new("2d preview")
+                        .default_open(true)
+                        .show(ui, |ui| match self.panel_2d.render(ui) {
+                            Some(Panel2dAction::ResizePreview(new_size)) => {
+                                self.gen_panel.exit_mask_mode();
+                                self.resize(new_size);
                             }
-                        }
-                        Some(Panel2dAction::MaskDelete) => {
-                            if let Some(from) = self.gen_panel.delete_mask() {
-                                self.regen(None, from);
+                            Some(Panel2dAction::MaskCommitted(mask)) => {
+                                if let Some(from) = self.gen_panel.commit_mask(mask) {
+                                    self.regen(None, from);
+                                }
                             }
-                        }
-                        None => (),
-                    });
-                egui::CollapsingHeader::new("3d preview")
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        self.panel_3d.render(ui);
-                    });
+                            Some(Panel2dAction::MaskDelete) => {
+                                if let Some(from) = self.gen_panel.delete_mask() {
+                                    self.regen(None, from);
+                                }
+                            }
+                            None => (),
+                        });
+                    egui::CollapsingHeader::new("3d preview")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            vp.rect = Some(self.panel_3d.render(ui));
+                        });
+                });
             });
-        });
     }
     fn handle_threads_messages(&mut self) {
-        while let Ok(msg) = self.thread2main_rx.try_recv() {
+        let rx = self.thread2main_rx.get_mut().unwrap();
+        let mut pending = Vec::new();
+        while let Ok(msg) = rx.try_recv() {
+            pending.push(msg);
+        }
+        for msg in pending {
             self.handle_thread_message(msg);
         }
     }
@@ -370,7 +437,6 @@ impl MyApp {
                 self.panel_2d
                     .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
                 self.gen_panel.selected_step = self.gen_panel.steps.len().saturating_sub(1);
-                self.panel_3d.update_mesh(&hmap);
                 self.gen_panel.is_running = false;
                 self.progress = 1.0;
             }
@@ -450,15 +516,10 @@ impl MyApp {
     }
 }
 
-impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let wsize = ctx.input(|i| {
-            if let Some(rect) = i.viewport().inner_rect {
-                rect.size()
-            } else {
-                emath::Vec2::new(0.0, 0.0)
-            }
-        });
+impl MyApp {
+    /// one frame: drains the worker channel, lays out the panels, shows the error popup
+    fn update(&mut self, ctx: &egui::Context, vp: &mut PreviewViewport, winit: &mut WinitSettings) {
+        let wsize = ctx.viewport_rect().size();
         let new_size = ((wsize.x - 340.0) * 0.5) as usize;
         if new_size != self.image_size && new_size != 0 {
             // handle window resizing : both previews keep their data and only change size
@@ -467,21 +528,27 @@ impl eframe::App for MyApp {
                 .refresh(self.image_size, self.preview_size as u32, None);
             self.panel_3d.set_size(self.image_size as f32);
         }
-        ctx.set_visuals(Visuals::dark());
+        ctx.set_theme(egui::Theme::Dark);
         self.handle_threads_messages();
-        if self.gen_panel.is_running || !self.export_panel.enabled {
-            // poll the channel while a worker thread runs, whatever widgets are on screen
-            ctx.request_repaint_after(Duration::from_millis(100));
-        }
-        self.render_left_panel(ctx);
-        self.render_central_panel(ctx);
+        self.set_update_mode(winit);
+        // egui 0.36 shows top-level panels into a root `Ui` covering the viewport
+        let mut root = egui::Ui::new(
+            ctx.clone(),
+            Id::new("root"),
+            UiBuilder::new()
+                .layer_id(LayerId::background())
+                .max_rect(ctx.viewport_rect()),
+        );
+        self.render_left_panel(&mut root);
+        self.render_central_panel(&mut root, vp);
 
         if let Some(ref err_msg) = self.err_msg {
-            // display error popup
+            // display error popup, over the 2D preview so it never sits under the scene camera
             let mut open = true;
             egui::Window::new("Error")
                 .resizable(false)
                 .collapsible(false)
+                .default_pos(egui::pos2(350.0, 40.0))
                 .open(&mut open)
                 .show(ctx, |ui| {
                     ui.scope(|ui| {
@@ -492,6 +559,16 @@ impl eframe::App for MyApp {
             if !open {
                 self.err_msg = None;
             }
+        }
+    }
+    /// polls the worker channel every `BUSY_REFRESH` while a worker thread runs, whatever
+    /// widgets are on screen; idle otherwise (bevy_egui drops delayed repaint requests)
+    fn set_update_mode(&self, winit: &mut WinitSettings) {
+        if self.gen_panel.is_running || !self.export_panel.enabled {
+            winit.focused_mode = UpdateMode::reactive(BUSY_REFRESH);
+            winit.unfocused_mode = UpdateMode::reactive(BUSY_REFRESH);
+        } else {
+            *winit = WinitSettings::desktop_app();
         }
     }
 }

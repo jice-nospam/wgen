@@ -1,5 +1,4 @@
-use eframe::egui;
-use epaint::{Color32, ColorImage, TextureHandle};
+use egui::{Color32, ColorImage, TextureHandle};
 
 use crate::{fps::FpsCounter, panel_maskedit::PanelMaskEdit, worldgen::ExportMap};
 
@@ -43,7 +42,7 @@ pub struct Panel2dView {
 impl Panel2dView {
     pub fn new(image_size: usize, preview_size: u32, hmap: &ExportMap) -> Self {
         let mut panel = Panel2dView {
-            img: ColorImage::new([image_size, image_size], Color32::BLACK),
+            img: ColorImage::filled([image_size, image_size], Color32::BLACK),
             min: 0.0,
             max: 0.0,
             image_size,
@@ -76,7 +75,7 @@ impl Panel2dView {
         self.image_size = image_size;
         self.preview_size = preview_size as usize;
         if self.img.width() != image_size {
-            self.img = ColorImage::new([self.image_size, self.image_size], Color32::BLACK);
+            self.img = ColorImage::filled([self.image_size, self.image_size], Color32::BLACK);
         }
         if let Some(hmap) = hmap {
             self.last_hmap = Some(hmap.clone());

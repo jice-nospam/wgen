@@ -1,4 +1,3 @@
-use eframe::egui;
 use serde::{Deserialize, Serialize};
 
 use super::{get_min_max, par_rows, Progress};

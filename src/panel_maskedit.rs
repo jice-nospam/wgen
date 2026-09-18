@@ -1,8 +1,7 @@
-use eframe::{
-    egui::{self, PointerButton, TextureId, TextureOptions},
-    emath,
+use egui::{
+    emath, Color32, ColorImage, PointerButton, Pos2, Rect, Stroke, TextureHandle, TextureId,
+    TextureOptions,
 };
-use epaint::{Color32, ColorImage, Pos2, Rect, Stroke, TextureHandle};
 
 use crate::{panel_2dview::Panel2dAction, MASK_SIZE};
 
@@ -139,10 +138,16 @@ impl PanelMaskEdit {
             egui::Vec2::splat(self.image_size as f32),
             egui::Sense::drag(),
         );
-        let lbutton = ui.input(|i| i.pointer.button_down(PointerButton::Primary));
-        let rbutton = ui.input(|i| i.pointer.button_down(PointerButton::Secondary));
-        let mbutton = ui.input(|i| i.pointer.button_down(PointerButton::Middle));
-        let mouse_pos = ui.input(|i| i.pointer.hover_pos());
+        let lbutton = ui
+            .ctx()
+            .input(|i| i.pointer.button_down(PointerButton::Primary));
+        let rbutton = ui
+            .ctx()
+            .input(|i| i.pointer.button_down(PointerButton::Secondary));
+        let mbutton = ui
+            .ctx()
+            .input(|i| i.pointer.button_down(PointerButton::Middle));
+        let mouse_pos = ui.ctx().input(|i| i.pointer.hover_pos());
         let to_screen = emath::RectTransform::from_to(
             Rect::from_min_size(Pos2::ZERO, response.rect.square_proportions()),
             response.rect,
@@ -150,10 +155,10 @@ impl PanelMaskEdit {
         let from_screen = to_screen.inverse();
         let brush_config = self.conf;
         let time = if self.prev_frame_time == -1.0 {
-            self.prev_frame_time = ui.input(|i| i.time);
+            self.prev_frame_time = ui.ctx().input(|i| i.time);
             0.0
         } else {
-            let t = ui.input(|i| i.time);
+            let t = ui.ctx().input(|i| i.time);
             let elapsed = t - self.prev_frame_time;
             self.prev_frame_time = t;
             elapsed

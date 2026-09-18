@@ -16,7 +16,10 @@ pub fn work_size(size: (usize, usize), max_res: usize) -> (usize, usize) {
 
 /// block average of `src` onto a `dst`-sized grid; `dst` must not exceed `size` on either axis
 pub fn downsample(src: &[f32], size: (usize, usize), dst: (usize, usize)) -> Vec<f32> {
-    debug_assert!(dst.0 <= size.0 && dst.1 <= size.1, "downsample enlarges the map");
+    debug_assert!(
+        dst.0 <= size.0 && dst.1 <= size.1,
+        "downsample enlarges the map"
+    );
     let mut sum = vec![0.0; dst.0 * dst.1];
     let mut count = vec![0u32; dst.0 * dst.1];
     for y in 0..size.1 {

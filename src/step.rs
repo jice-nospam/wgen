@@ -1,14 +1,13 @@
 use std::fmt::Display;
 
-use eframe::egui;
 use serde::{Deserialize, Serialize};
 
 use crate::generators::{
-    gen_fbm, gen_fluvial_erosion, gen_hills, gen_island, gen_landmass, gen_mid_point,
-    gen_mudslide, gen_normalize, gen_thermal_erosion, gen_water_erosion, render_fbm,
-    render_fluvial_erosion, render_hills, render_island, render_landmass, render_mid_point,
-    render_mudslide, render_thermal_erosion, render_water_erosion, FbmConf, FluvialErosionConf,
-    HillsConf, IslandConf, LandMassConf, MidPointConf, MudSlideConf, NormalizeConf, Progress,
+    gen_fbm, gen_fluvial_erosion, gen_hills, gen_island, gen_landmass, gen_mid_point, gen_mudslide,
+    gen_normalize, gen_thermal_erosion, gen_water_erosion, render_fbm, render_fluvial_erosion,
+    render_hills, render_island, render_landmass, render_mid_point, render_mudslide,
+    render_thermal_erosion, render_water_erosion, FbmConf, FluvialErosionConf, HillsConf,
+    IslandConf, LandMassConf, MidPointConf, MudSlideConf, NormalizeConf, Progress,
     ThermalErosionConf, WaterErosionConf,
 };
 

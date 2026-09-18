@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use eframe::egui;
-
 use crate::panel_export::TEXTEDIT_WIDTH;
 pub struct PanelSaveLoad {
     /// the name of the file to load or save

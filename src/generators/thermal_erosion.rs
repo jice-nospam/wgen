@@ -1,6 +1,5 @@
 use std::f32::consts::SQRT_2;
 
-use eframe::egui;
 use serde::{Deserialize, Serialize};
 
 use super::{add_upsampled, downsample, work_size, Progress, DIRX, DIRY};

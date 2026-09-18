@@ -1,4 +1,3 @@
-use eframe::egui;
 use serde::{Deserialize, Serialize};
 
 use super::{normalize, par_rows, Progress};

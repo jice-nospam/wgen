@@ -1,4 +1,3 @@
-use eframe::egui;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use serde::{Deserialize, Serialize};
 

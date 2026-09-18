@@ -18,6 +18,9 @@ Exemple of (untextured) 4K x 4K landscape imported in Unreal Engine 5 :
 
 If you like this project and want to support its development, feel free to donate at [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://paypal.me/guldendraak)
 
+# Building
+`cargo run --features bevy/dynamic_linking` for development builds (the first compile of bevy takes a few minutes), `cargo build --release` for a distributable binary.
+
 # Manual
 ## Generators
 This is where you control the world generation. You can stack several "generators" that applies some modification to the heightmap.
@@ -50,6 +53,7 @@ You have a 2D preview displaying the heightmap (at current selected step in the 
 ![3D preview UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_2d.jpg)
 
 You also have a 3D preview displaying the final 3D mesh. The mesh uses the same resolution as the 2D preview.
+*The 3D preview is being rebuilt on Bevy: in the current development version the 3D square is empty; the widgets and camera controls below are inert until the terrain comes back.*
 You can change the view by dragging the mouse cursor in the view :
 - rotate the terrain with left button
 - zoom with middle button

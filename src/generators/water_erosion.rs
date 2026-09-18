@@ -1,4 +1,3 @@
-use eframe::egui;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
@@ -467,7 +466,11 @@ mod tests {
     fn same_seed_is_identical() {
         let conf = WaterErosionConf::default();
         let a = erode(42, (16, 16), &conf);
-        assert_eq!(a, erode(42, (16, 16), &conf), "same seed gave a different map");
+        assert_eq!(
+            a,
+            erode(42, (16, 16), &conf),
+            "same seed gave a different map"
+        );
         assert_ne!(a, erode(43, (16, 16), &conf), "two seeds gave the same map");
     }
 
@@ -477,7 +480,10 @@ mod tests {
         let out = erode(7, (16, 16), &WaterErosionConf::default());
         assert_ne!(out, input, "erosion left the map untouched");
         let delta: f32 = out.iter().zip(input.iter()).map(|(o, i)| o - i).sum();
-        assert!(delta < 0.0, "net change over a pyramid is {delta}, expected erosion");
+        assert!(
+            delta < 0.0,
+            "net change over a pyramid is {delta}, expected erosion"
+        );
     }
 
     #[test]
@@ -493,7 +499,11 @@ mod tests {
     fn non_square_maps_run() {
         for size in [(16, 32), (32, 16)] {
             let out = erode(7, size, &WaterErosionConf::default());
-            assert_ne!(out, pyramid(size), "{size:?} : erosion left the map untouched");
+            assert_ne!(
+                out,
+                pyramid(size),
+                "{size:?} : erosion left the map untouched"
+            );
         }
     }
 
@@ -581,6 +591,9 @@ mod tests {
         let input = pyramid((64, 32));
         let mut out = input.clone();
         gen_water_erosion(5, (64, 32), &mut out, &conf, &mut Progress::headless());
-        assert_ne!(out, input, "erosion on a non-square working grid did nothing");
+        assert_ne!(
+            out, input,
+            "erosion on a non-square working grid did nothing"
+        );
     }
 }

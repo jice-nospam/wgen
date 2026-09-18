@@ -1,6 +1,5 @@
 use eframe::egui;
-use egui_extras::RetainedImage;
-use epaint::{Color32, ColorImage};
+use epaint::{Color32, ColorImage, TextureHandle};
 
 use crate::{fps::FpsCounter, panel_maskedit::PanelMaskEdit, worldgen::ExportMap};
 
@@ -29,8 +28,10 @@ pub struct Panel2dView {
     pub live_preview: bool,
     /// utility to display FPS
     fps_counter: FpsCounter,
-    /// egui renderable image
-    ui_img: Option<RetainedImage>,
+    /// GPU texture of `img`, uploaded lazily in `render`
+    ui_img: Option<TextureHandle>,
+    /// `img` changed since the last upload to `ui_img`
+    img_dirty: bool,
     /// a preview size change waiting for a frame with no other action to report
     pending_resize: Option<usize>,
     /// last heightmap displayed, re-rendered when the canvas size changes
@@ -51,6 +52,7 @@ impl Panel2dView {
             preview_size: preview_size as usize,
             fps_counter: FpsCounter::default(),
             ui_img: None,
+            img_dirty: false,
             pending_resize: None,
             last_hmap: None,
             mask_editor: PanelMaskEdit::new(image_size),
@@ -100,21 +102,39 @@ impl Panel2dView {
                 }
             }
         };
-        self.ui_img = Some(RetainedImage::from_color_image("hmap", self.img.clone()));
+        self.img_dirty = true;
         if self.mask_mode {
             self.mask_editor.heightmap_changed(image_size);
         }
+    }
+    /// uploads `img` to the GPU texture when it changed since the last frame
+    fn upload_image(&mut self, ctx: &egui::Context) {
+        if !self.img_dirty {
+            return;
+        }
+        match &mut self.ui_img {
+            Some(handle) => handle.set(self.img.clone(), egui::TextureOptions::LINEAR),
+            None => {
+                self.ui_img =
+                    Some(ctx.load_texture("hmap", self.img.clone(), egui::TextureOptions::LINEAR))
+            }
+        }
+        self.img_dirty = false;
     }
     pub fn render(&mut self, ui: &mut egui::Ui) -> Option<Panel2dAction> {
         let mut action = None;
         let old_size = self.preview_size;
         self.fps_counter.new_frame();
+        self.upload_image(ui.ctx());
         if self.mask_mode {
-            action = self.mask_editor.render(ui, &self.img);
+            action = match &self.ui_img {
+                Some(handle) => self.mask_editor.render(ui, handle.id()),
+                None => None,
+            };
         } else {
             ui.vertical(|ui| {
-                if let Some(ref img) = self.ui_img {
-                    img.show(ui);
+                if let Some(handle) = &self.ui_img {
+                    ui.image((handle.id(), handle.size_vec2()));
                 }
                 ui.horizontal(|ui| {
                     ui.label(format!("Height range : {} - {}", self.min, self.max));

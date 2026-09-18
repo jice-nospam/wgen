@@ -33,8 +33,6 @@ pub struct PanelGenerator {
     pub selected_step: usize,
     /// step whose mask is being painted in the 2D preview, if any
     mask_step: Option<usize>,
-    /// step whose mask changed since the last recompute; recomputed once mask editing ends
-    mask_dirty: Option<usize>,
     /// current drag n drop destination
     move_to_pos: usize,
     /// is the drag n drop zone currently hovered by the mouse cursor?
@@ -54,7 +52,6 @@ impl Default for PanelGenerator {
             },
             selected_step: 0,
             mask_step: None,
-            mask_dirty: None,
             move_to_pos: 0,
             hovered: false,
             seed: 0xdeadbeef,
@@ -90,22 +87,20 @@ impl PanelGenerator {
     /// ends mask editing without recomputing anything : the caller recomputes the whole stack
     pub fn exit_mask_mode(&mut self) {
         self.mask_step = None;
-        self.mask_dirty = None;
     }
-    /// stores a painted mask on the step being edited
-    pub fn commit_mask(&mut self, mask: Vec<f32>) {
-        self.set_mask(Some(mask));
+    /// stores a painted mask on the step being edited; returns that step's index, to recompute from
+    pub fn commit_mask(&mut self, mask: Vec<f32>) -> Option<usize> {
+        self.set_mask(Some(mask))
     }
-    /// removes the mask of the step being edited
-    pub fn delete_mask(&mut self) {
-        self.set_mask(None);
+    /// removes the mask of the step being edited; returns that step's index, to recompute from
+    pub fn delete_mask(&mut self) -> Option<usize> {
+        self.set_mask(None)
     }
-    fn set_mask(&mut self, mask: Option<Vec<f32>>) {
-        let Some(i) = self.mask_step else { return };
-        if let Some(step) = self.steps.get_mut(i) {
-            step.mask = mask;
-            self.mask_dirty = Some(i);
-        }
+    fn set_mask(&mut self, mask: Option<Vec<f32>>) -> Option<usize> {
+        let i = self.mask_step?;
+        let step = self.steps.get_mut(i)?;
+        step.mask = mask;
+        Some(i)
     }
     pub fn load_project(&mut self, project: Project) {
         self.steps = project.steps;
@@ -327,36 +322,6 @@ impl PanelGenerator {
                 }
             }
         }
-        self.merge_dirty_mask(action)
-    }
-    /// once mask editing ends, a mask painted earlier is recomputed with whatever else is pending
-    fn merge_dirty_mask(&mut self, action: Option<GeneratorAction>) -> Option<GeneratorAction> {
-        if self.mask_step.is_some() {
-            return action;
-        }
-        let Some(dirty) = self.mask_dirty else {
-            return action;
-        };
-        match action {
-            Some(GeneratorAction::Regen { delete, from }) => {
-                self.mask_dirty = None;
-                Some(GeneratorAction::Regen {
-                    delete,
-                    from: from.min(dirty),
-                })
-            }
-            None | Some(GeneratorAction::DisplayLayer(_)) => {
-                self.mask_dirty = None;
-                Some(GeneratorAction::Regen {
-                    delete: None,
-                    from: dirty,
-                })
-            }
-            // SetSeed recomputes everything, Clear drops everything, DisplayMask cannot happen here
-            other => {
-                self.mask_dirty = None;
-                other
-            }
-        }
+        action
     }
 }

@@ -1,12 +1,8 @@
 use eframe::{
-    egui::{self, PointerButton},
+    egui::{self, PointerButton, TextureId, TextureOptions},
     emath,
 };
-use epaint::{Color32, ColorImage, Pos2, Rect};
-use three_d::{
-    vec3, Blend, Camera, ColorMaterial, CpuMaterial, CpuMesh, CpuTexture, Cull, DepthTest, Gm,
-    Indices, Mat4, Mesh, Object, Positions, Srgba, TextureData, Viewport,
-};
+use epaint::{Color32, ColorImage, Pos2, Rect, Stroke, TextureHandle};
 
 use crate::{panel_2dview::Panel2dAction, MASK_SIZE};
 
@@ -31,12 +27,10 @@ pub struct PanelMaskEdit {
     mask: Option<Vec<f32>>,
     /// the brush parameters
     conf: BrushConfig,
-    /// should the mesh used to render the mask be updated to reflect changes in mask ?
-    mesh_updated: bool,
-    /// are we rendering a new mask for the first time ?
-    new_mask: bool,
-    /// should the mesh used to render the brush be updated to reflect a change in brush falloff ?
-    brush_updated: bool,
+    /// GPU texture of `mask`, a MASK_SIZE x MASK_SIZE grayscale image
+    mask_tex: Option<TextureHandle>,
+    /// `mask` changed since the last upload to `mask_tex`
+    mask_dirty: bool,
     /// are we currently modifying the mask (cursor is in canvas and one mouse button is pressed)
     is_painting: bool,
     /// used to compute the brush impact on the mask depending on elapsed time
@@ -56,36 +50,30 @@ impl PanelMaskEdit {
                 falloff: 0.5,
                 opacity: 0.5,
             },
-            mesh_updated: false,
-            new_mask: true,
+            mask_tex: None,
+            mask_dirty: false,
             is_painting: false,
-            brush_updated: false,
             prev_frame_time: -1.0,
             heightmap_transparency: 0.5,
         }
     }
     pub fn display_mask(&mut self, image_size: usize, mask: Vec<f32>) {
         self.image_size = image_size;
-        self.mesh_updated = true;
-        self.new_mask = true;
+        self.mask_dirty = true;
         self.is_painting = false;
         self.mask = Some(mask);
     }
-    /// the heightmap shown under the mask changed (or the canvas size did)
+    /// the canvas size changed (the heightmap texture itself belongs to the 2D panel)
     pub fn heightmap_changed(&mut self, image_size: usize) {
         self.image_size = image_size;
-        self.new_mask = true;
     }
-    pub fn render(
-        &mut self,
-        ui: &mut egui::Ui,
-        heightmap_img: &ColorImage,
-    ) -> Option<Panel2dAction> {
+    /// `heightmap_id` is the 2D panel's heightmap texture, drawn over the mask
+    pub fn render(&mut self, ui: &mut egui::Ui, heightmap_id: TextureId) -> Option<Panel2dAction> {
         let mut action = None;
         ui.vertical(|ui| {
             let was_painting = self.is_painting;
             egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
-                self.render_3dview(ui, heightmap_img, self.image_size as u32);
+                self.paint_canvas(ui, heightmap_id);
             });
             if self.is_painting {
                 ui.ctx().request_repaint();
@@ -105,7 +93,6 @@ impl PanelMaskEdit {
                         .range(1.0 / (MASK_SIZE as f32)..=1.0),
                 );
                 ui.label("falloff");
-                let old_falloff = self.conf.falloff;
                 ui.add(
                     egui::DragValue::new(&mut self.conf.falloff)
                         .speed(0.01)
@@ -123,8 +110,6 @@ impl PanelMaskEdit {
                         .speed(0.01)
                         .range(0.0..=1.0),
                 );
-                // need to update the brush mesh ?
-                self.brush_updated = old_falloff != self.conf.falloff;
             });
             ui.horizontal(|ui| {
                 ui.label("heightmap opacity");
@@ -142,13 +127,14 @@ impl PanelMaskEdit {
                 action = Some(Panel2dAction::MaskDelete);
                 if let Some(ref mut mask) = self.mask {
                     mask.fill(1.0);
-                    self.mesh_updated = true;
+                    self.mask_dirty = true;
                 }
             }
         });
         action
     }
-    fn render_3dview(&mut self, ui: &mut egui::Ui, heightmap_img: &ColorImage, image_size: u32) {
+    /// allocates the canvas, applies the brush under the pointer, then paints mask, heightmap and brush
+    fn paint_canvas(&mut self, ui: &mut egui::Ui, heightmap_id: TextureId) {
         let (rect, response) = ui.allocate_exact_size(
             egui::Vec2::splat(self.image_size as f32),
             egui::Sense::drag(),
@@ -156,21 +142,12 @@ impl PanelMaskEdit {
         let lbutton = ui.input(|i| i.pointer.button_down(PointerButton::Primary));
         let rbutton = ui.input(|i| i.pointer.button_down(PointerButton::Secondary));
         let mbutton = ui.input(|i| i.pointer.button_down(PointerButton::Middle));
-        let mut mouse_pos = ui.input(|i| i.pointer.hover_pos());
+        let mouse_pos = ui.input(|i| i.pointer.hover_pos());
         let to_screen = emath::RectTransform::from_to(
             Rect::from_min_size(Pos2::ZERO, response.rect.square_proportions()),
             response.rect,
         );
         let from_screen = to_screen.inverse();
-        let mut mesh_updated = self.mesh_updated;
-        let new_mask = self.new_mask;
-        let hmap_transp = self.heightmap_transparency;
-        let heightmap_img = if new_mask {
-            Some(heightmap_img.clone())
-        } else {
-            None
-        };
-        let brush_updated = self.brush_updated;
         let brush_config = self.conf;
         let time = if self.prev_frame_time == -1.0 {
             self.prev_frame_time = ui.input(|i| i.time);
@@ -181,46 +158,49 @@ impl PanelMaskEdit {
             self.prev_frame_time = t;
             elapsed
         };
-        if let Some(pos) = mouse_pos {
-            // mouse position in canvas from 0.0,0.0 (bottom left) to 1.0,1.0 (top right)
-            let canvas_pos = from_screen * pos;
-            mouse_pos = Some(canvas_pos);
+        // pointer position in canvas from 0.0,0.0 (top left) to 1.0,1.0 (bottom right)
+        let canvas_pos = mouse_pos.map(|pos| from_screen * pos);
+        if let Some(canvas_pos) = canvas_pos {
             self.is_painting = (lbutton || rbutton || mbutton) && in_canvas(canvas_pos);
             if self.is_painting && time > 0.0 {
                 self.update_mask(canvas_pos, lbutton, rbutton, brush_config, time as f32);
-                mesh_updated = true;
+                self.mask_dirty = true;
             }
         } else {
             // the pointer left the window : the stroke is over
             self.is_painting = false;
         }
-        let mask = if mesh_updated {
-            self.mask.clone()
-        } else {
-            None
-        };
-        let callback = egui::PaintCallback {
-            rect,
-            callback: std::sync::Arc::new(egui_glow::CallbackFn::new(move |info, painter| {
-                with_three_d_context(painter.gl(), |three_d, renderer| {
-                    if new_mask {
-                        if let Some(ref heightmap_img) = heightmap_img {
-                            renderer.set_heightmap(three_d, heightmap_img, image_size);
-                        }
-                    }
-                    if brush_updated {
-                        renderer.update_brush(three_d, brush_config);
-                    }
-                    if mesh_updated {
-                        renderer.update_model(three_d, &mask);
-                    }
-                    renderer.render(three_d, &info, mouse_pos, brush_config, hmap_transp);
-                });
-            })),
-        };
-        ui.painter().add(callback);
-        self.mesh_updated = false;
-        self.new_mask = false;
+        self.upload_mask(ui.ctx());
+        let painter = ui.painter_at(rect);
+        let uv = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
+        if let Some(mask_tex) = &self.mask_tex {
+            painter.image(mask_tex.id(), rect, uv, Color32::WHITE);
+        }
+        let alpha = (self.heightmap_transparency * 255.0) as u8;
+        painter.image(heightmap_id, rect, uv, Color32::from_white_alpha(alpha));
+        if let Some(pos) = mouse_pos.filter(|_| canvas_pos.is_some_and(in_canvas)) {
+            let r_px = brush_config.size * MAX_BRUSH_SIZE * rect.width();
+            painter.circle_stroke(pos, r_px, Stroke::new(1.5_f32, Color32::RED));
+            painter.circle_stroke(
+                pos,
+                r_px * (1.0 - brush_config.falloff),
+                Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 0, 0, 110)),
+            );
+        }
+    }
+    /// uploads `mask` to `mask_tex` when it changed since the last frame
+    fn upload_mask(&mut self, ctx: &egui::Context) {
+        if !self.mask_dirty {
+            return;
+        }
+        if let Some(mask) = &self.mask {
+            let img = mask_image(mask);
+            match &mut self.mask_tex {
+                Some(handle) => handle.set(img, TextureOptions::LINEAR),
+                None => self.mask_tex = Some(ctx.load_texture("mask", img, TextureOptions::LINEAR)),
+            }
+        }
+        self.mask_dirty = false;
     }
 
     fn update_mask(
@@ -280,268 +260,43 @@ fn in_canvas(canvas_pos: Pos2) -> bool {
     canvas_pos.x >= 0.0 && canvas_pos.x <= 1.0 && canvas_pos.y >= 0.0 && canvas_pos.y <= 1.0
 }
 
-fn with_three_d_context<R>(
-    gl: &std::sync::Arc<egui_glow::glow::Context>,
-    f: impl FnOnce(&three_d::Context, &mut Renderer) -> R,
-) -> R {
-    use std::cell::RefCell;
-    thread_local! {
-        pub static THREE_D: RefCell<Option<(three_d::Context,Renderer)>> = RefCell::new(None);
-    }
-    #[allow(unsafe_code)]
-    unsafe {
-        use egui_glow::glow::HasContext as _;
-        gl.disable(egui_glow::glow::DEPTH_TEST);
-        gl.enable(egui_glow::glow::BLEND);
-        if !cfg!(target_arch = "wasm32") {
-            gl.disable(egui_glow::glow::FRAMEBUFFER_SRGB);
-        }
-    }
-    THREE_D.with(|context| {
-        let mut context = context.borrow_mut();
-        let (three_d, renderer) = context.get_or_insert_with(|| {
-            let three_d = three_d::Context::from_gl_context(gl.clone()).unwrap();
-            let renderer = Renderer::new(&three_d);
-            (three_d, renderer)
-        });
-
-        f(three_d, renderer)
-    })
-}
-pub struct Renderer {
-    mask_model: Gm<Mesh, ColorMaterial>,
-    brush_mesh: CpuMesh,
-    brush_model: Gm<Mesh, ColorMaterial>,
-    heightmap_model: Gm<Mesh, ColorMaterial>,
-    mask_mesh: CpuMesh,
-    material: ColorMaterial,
+/// the mask as a top-down grayscale image, row `y` of the mask on row `y` of the image
+fn mask_image(mask: &[f32]) -> ColorImage {
+    let bytes: Vec<u8> = mask
+        .iter()
+        .map(|v| (v * 255.0).clamp(0.0, 255.0) as u8)
+        .collect();
+    ColorImage::from_gray([MASK_SIZE, MASK_SIZE], &bytes)
 }
 
-impl Renderer {
-    pub fn new(three_d: &three_d::Context) -> Self {
-        let mut material = ColorMaterial::new(
-            three_d,
-            &CpuMaterial {
-                roughness: 1.0,
-                metallic: 0.0,
-                albedo: Srgba::WHITE,
-                ..Default::default()
-            },
-        );
-        material.render_states.cull = Cull::None;
-        material.render_states.depth_test = DepthTest::Always;
-        material.render_states.blend = Blend::TRANSPARENCY;
-        let mask_mesh = build_mask();
-        let mask_model = Gm::new(Mesh::new(three_d, &mask_mesh), material.clone());
-        let brush_mesh = build_brush(0.5);
-        let brush_model = Gm::new(Mesh::new(three_d, &brush_mesh), material.clone());
-        let heightmap_model = Gm::new(Mesh::new(three_d, &CpuMesh::square()), material.clone());
-        Self {
-            mask_model,
-            brush_mesh,
-            brush_model,
-            mask_mesh,
-            heightmap_model,
-            material,
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mask_image_keeps_row_order() {
+        let mut mask = vec![0.0; MASK_SIZE * MASK_SIZE];
+        mask[3 + 5 * MASK_SIZE] = 1.0;
+        let img = mask_image(&mask);
+        assert_eq!(img.size, [MASK_SIZE, MASK_SIZE]);
+        assert_eq!(img.pixels[3 + 5 * MASK_SIZE], Color32::from_gray(255));
+        assert_eq!(img.pixels[5 + 3 * MASK_SIZE], Color32::from_gray(0));
     }
-    pub fn update_brush(&mut self, three_d: &three_d::Context, brush_conf: BrushConfig) {
-        if let Positions::F32(ref mut vertices) = self.brush_mesh.positions {
-            let inv_fall = 1.0 - brush_conf.falloff;
-            // update position of inner opaque ring
-            for i in 0..32 {
-                let angle = std::f32::consts::PI * 2.0 * (i as f32) / 32.0;
-                vertices[i + 1] = vec3(angle.cos() * inv_fall, angle.sin() * inv_fall, 0.0);
-            }
-        }
-        self.brush_model = Gm::new(Mesh::new(three_d, &self.brush_mesh), self.material.clone());
-    }
-    pub fn update_model(&mut self, three_d: &three_d::Context, mask: &Option<Vec<f32>>) {
-        if let Some(mask) = mask {
-            if let Some(ref mut colors) = self.mask_mesh.colors {
-                let mut idx = 0;
-                for y in 0..MASK_SIZE {
-                    let yoff = (MASK_SIZE - 1 - y) * MASK_SIZE;
-                    for x in 0..MASK_SIZE {
-                        let rgb_val = (mask[yoff + x] * 255.0).clamp(0.0, 255.0) as u8;
-                        colors[idx].r = rgb_val;
-                        colors[idx].g = rgb_val;
-                        colors[idx].b = rgb_val;
-                        idx += 1;
-                    }
-                }
-            }
-            self.mask_model = Gm::new(Mesh::new(three_d, &self.mask_mesh), self.material.clone());
-        }
-    }
-    pub fn render(
-        &mut self,
-        _three_d: &three_d::Context,
-        info: &egui::PaintCallbackInfo,
-        mouse_pos: Option<Pos2>,
-        brush_conf: BrushConfig,
-        hmap_transp: f32,
-    ) {
-        // Set where to paint
-        let viewport = info.viewport_in_pixels();
-        let viewport = Viewport {
-            x: viewport.left_px,
-            y: viewport.from_bottom_px,
-            width: viewport.width_px as _,
-            height: viewport.height_px as _,
+
+    #[test]
+    fn update_mask_darkens_centre_only() {
+        let mut panel = PanelMaskEdit::new(256);
+        panel.display_mask(256, vec![1.0; MASK_SIZE * MASK_SIZE]);
+        let conf = BrushConfig {
+            value: 0.5,
+            size: 0.5,
+            falloff: 0.5,
+            opacity: 0.5,
         };
-
-        let target = vec3(0.0, 0.0, 0.0);
-        let campos = vec3(0.0, 0.0, 1.0);
-
-        let camera = Camera::new_orthographic(
-            viewport,
-            campos,
-            target,
-            vec3(0.0, 1.0, 0.0),
-            10.0,
-            0.0,
-            1000.0,
-        );
-
-        self.mask_model.render(&camera, &[]);
-        if let Some(mouse_pos) = mouse_pos {
-            let transfo = Mat4::from_translation(vec3(
-                mouse_pos.x * 10.0 - 5.0,
-                5.0 - mouse_pos.y * 10.0,
-                0.1,
-            ));
-            let scale = Mat4::from_scale(brush_conf.size * 10.0 * MAX_BRUSH_SIZE);
-            self.brush_model.set_transformation(transfo * scale);
-            self.brush_model.render(&camera, &[]);
-        }
-        let transfo = Mat4::from_scale(5.0);
-        self.heightmap_model.set_transformation(transfo);
-        self.heightmap_model.material.color.a = (hmap_transp * 255.0) as u8;
-        self.heightmap_model.render(&camera, &[]);
+        panel.update_mask(Pos2::new(0.5, 0.5), true, false, conf, 0.1);
+        let mask = panel.mask.as_ref().unwrap();
+        let centre = MASK_SIZE / 2;
+        assert!(mask[centre + centre * MASK_SIZE] < 1.0);
+        assert_eq!(mask[0], 1.0);
     }
-
-    fn set_heightmap(
-        &mut self,
-        three_d: &three_d::Context,
-        heightmap_img: &ColorImage,
-        image_size: u32,
-    ) {
-        self.heightmap_model = build_heightmap(three_d, heightmap_img, image_size);
-    }
-}
-
-/// build a circular mesh with a double ring : one opaque 32 vertices inner ring and one transparent 64 vertices outer ring
-fn build_brush(falloff: f32) -> CpuMesh {
-    const VERTICES_COUNT: usize = 1 + 32 + 64;
-    let mut colors = Vec::with_capacity(VERTICES_COUNT);
-    let mut vertices = Vec::with_capacity(VERTICES_COUNT);
-    let mut indices = Vec::with_capacity(3 * 32 + 9 * 32);
-    vertices.push(vec3(0.0, 0.0, 0.0));
-    let inv_fall = 1.0 - falloff;
-    // inner opaque ring
-    for i in 0..32 {
-        let angle = std::f32::consts::PI * 2.0 * (i as f32) / 32.0;
-        vertices.push(vec3(angle.cos() * inv_fall, angle.sin() * inv_fall, 0.0));
-    }
-    // outer transparent ring
-    for i in 0..64 {
-        let angle = std::f32::consts::PI * 2.0 * (i as f32) / 64.0;
-        vertices.push(vec3(angle.cos(), angle.sin(), 0.0));
-    }
-    for _ in 0..33 {
-        colors.push(Srgba::RED);
-    }
-    for _ in 0..64 {
-        colors.push(Srgba::new(255, 0, 0, 0));
-    }
-    // inner ring
-    for i in 0..32 {
-        indices.push(0);
-        indices.push(1 + i);
-        indices.push(1 + (1 + i) % 32);
-    }
-    // outer ring, 32 vertices inside, 64 vertices outside
-    for i in 0..32 {
-        indices.push(1 + i);
-        indices.push(33 + 2 * i);
-        indices.push(33 + (2 * i + 1) % 64);
-
-        indices.push(1 + i);
-        indices.push(1 + (i + 1) % 32);
-        indices.push(33 + (2 * i + 1) % 64);
-
-        indices.push(1 + (i + 1) % 32);
-        indices.push(33 + (2 * i + 1) % 64);
-        indices.push(33 + (2 * i + 2) % 64);
-    }
-    CpuMesh {
-        // name: "brush".to_string(),
-        positions: Positions::F32(vertices),
-        indices: Indices::U16(indices),
-        colors: Some(colors),
-        ..Default::default()
-    }
-}
-
-fn build_mask() -> CpuMesh {
-    let mut vertices = Vec::with_capacity(MASK_SIZE * MASK_SIZE);
-    let mut indices = Vec::with_capacity(6 * (MASK_SIZE - 1) * (MASK_SIZE - 1));
-    let mut colors = Vec::with_capacity(MASK_SIZE * MASK_SIZE);
-    for y in 0..MASK_SIZE {
-        let vy = y as f32 / (MASK_SIZE - 1) as f32 * 10.0 - 5.0;
-        for x in 0..MASK_SIZE {
-            let vx = x as f32 / (MASK_SIZE - 1) as f32 * 10.0 - 5.0;
-            vertices.push(three_d::vec3(vx, vy, 0.0));
-            colors.push(Srgba::WHITE);
-        }
-    }
-    for y in 0..MASK_SIZE - 1 {
-        let y_offset = y * MASK_SIZE;
-        for x in 0..MASK_SIZE - 1 {
-            let off = x + y_offset;
-            indices.push((off) as u32);
-            indices.push((off + MASK_SIZE) as u32);
-            indices.push((off + 1) as u32);
-            indices.push((off + MASK_SIZE) as u32);
-            indices.push((off + MASK_SIZE + 1) as u32);
-            indices.push((off + 1) as u32);
-        }
-    }
-    CpuMesh {
-        positions: Positions::F32(vertices),
-        indices: Indices::U32(indices),
-        colors: Some(colors),
-        ..Default::default()
-    }
-}
-
-/// build a simple textured square to display the heightmap
-fn build_heightmap(
-    three_d: &three_d::Context,
-    heightmap_img: &ColorImage,
-    image_size: u32,
-) -> Gm<Mesh, ColorMaterial> {
-    let mesh = CpuMesh::square();
-    let mut material = ColorMaterial::new(
-        three_d,
-        &CpuMaterial {
-            roughness: 1.0,
-            metallic: 0.0,
-            albedo: Srgba::new(255, 255, 255, 128),
-            albedo_texture: Some(CpuTexture {
-                width: image_size,
-                height: image_size,
-                data: TextureData::RgbaU8(
-                    heightmap_img.pixels.iter().map(Color32::to_array).collect(),
-                ),
-                ..Default::default()
-            }),
-            ..Default::default()
-        },
-    );
-    material.render_states.cull = Cull::None;
-    material.render_states.depth_test = DepthTest::Always;
-    material.render_states.blend = Blend::TRANSPARENCY;
-    Gm::new(Mesh::new(three_d, &mesh), material)
 }

@@ -331,10 +331,14 @@ impl MyApp {
                             self.resize(new_size);
                         }
                         Some(Panel2dAction::MaskCommitted(mask)) => {
-                            self.gen_panel.commit_mask(mask);
+                            if let Some(from) = self.gen_panel.commit_mask(mask) {
+                                self.regen(None, from);
+                            }
                         }
                         Some(Panel2dAction::MaskDelete) => {
-                            self.gen_panel.delete_mask();
+                            if let Some(from) = self.gen_panel.delete_mask() {
+                                self.regen(None, from);
+                            }
                         }
                         None => (),
                     });

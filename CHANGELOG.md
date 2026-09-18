@@ -1,6 +1,17 @@
 # Changelog
 
-## [0.4.1] - Unreleased
+## [0.5.0] - Unreleased
+
+### Added
+
+### Changed
+
+- auto 3D preview refresh during mask editing
+
+### Fixed
+
+
+## [0.4.1] - 2026-09-15
 
 ### Added
 

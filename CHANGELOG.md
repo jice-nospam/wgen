@@ -4,11 +4,18 @@
 
 ### Added
 
+- 3D preview: physically based sky (`Show skybox`) with sun disk, aerial perspective and sky-lit shadows; `Sun elevation °` and `Exposure EV` controls
+
 ### Changed
 
 - auto 3D preview refresh during mask editing
 - mask editor drawn with egui only; the brush is a red outline (extent + falloff) instead of a filled disc
 - replaced eframe + three-d with Bevy 0.19 + bevy_egui (egui 0.36)
+- 3D preview rendered by Bevy
+
+### Removed
+
+- the ±3-unit vertex step the 3D preview faked at the shoreline; the water plane now cuts the terrain on a clean line
 
 ### Fixed
 

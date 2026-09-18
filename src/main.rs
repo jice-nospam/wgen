@@ -15,10 +15,13 @@ mod panel_save;
 mod preview3d;
 mod project;
 mod step;
+mod terrain_material;
+mod water_material;
 mod worldgen;
 
 use bevy::camera::CameraUpdateSystems;
 use bevy::log::{Level, LogPlugin};
+use bevy::pbr::DefaultOpaqueRendererMethod;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy::winit::{EventLoopProxyWrapper, UpdateMode, WinitSettings, WinitUserEvent};
@@ -37,8 +40,10 @@ use panel_3dview::Panel3dView;
 use panel_export::PanelExport;
 use panel_generator::{GeneratorAction, PanelGenerator};
 use panel_save::{PanelSaveLoad, SaveLoadAction};
-use preview3d::PreviewViewport;
+use preview3d::{PreviewViewport, SceneTarget};
 use project::Project;
+use terrain_material::TerrainMaterialPlugin;
+use water_material::WaterMaterialPlugin;
 use worldgen::{generator_thread, ExportMap, Invalidation, WorldGenCommand, WorldGenerator};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -93,13 +98,35 @@ fn main() {
                 }),
         )
         .add_plugins(EguiPlugin::default())
+        .add_plugins(TerrainMaterialPlugin)
+        .add_plugins(WaterMaterialPlugin)
+        // every opaque material renders through the gbuffer (screen-space reflections need it)
+        .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .insert_resource(WinitSettings::desktop_app())
         .init_resource::<PreviewViewport>()
-        .add_systems(Startup, (setup, preview3d::spawn_cameras).chain())
+        .add_systems(
+            Startup,
+            (
+                setup,
+                preview3d::spawn_cameras,
+                preview3d::spawn_scene,
+                preview3d::spawn_sky,
+            )
+                .chain(),
+        )
         .add_systems(EguiPrimaryContextPass, ui_system)
+        .add_systems(Update, preview3d::update_terrain)
         .add_systems(
             PostUpdate,
-            preview3d::apply_viewport.before(CameraUpdateSystems),
+            (
+                preview3d::apply_view_conf,
+                preview3d::apply_sky,
+                preview3d::apply_target,
+                terrain_material::apply_terrain_conf,
+                water_material::apply_water_conf,
+            )
+                .chain()
+                .before(CameraUpdateSystems),
         )
         .run();
 }
@@ -123,10 +150,11 @@ fn ui_system(
     mut contexts: EguiContexts,
     mut app: ResMut<MyApp>,
     mut vp: ResMut<PreviewViewport>,
+    target: Res<SceneTarget>,
     mut winit: ResMut<WinitSettings>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
-    app.update(ctx, &mut vp, &mut winit);
+    app.update(ctx, &mut vp, target.texture, &mut winit);
     Ok(())
 }
 
@@ -152,6 +180,8 @@ struct MyApp {
     invalidation: Invalidation,
     /// labels of the steps being exported, captured when the export started
     export_step_names: Vec<String>,
+    /// the heightmap the 3D terrain must be rebuilt from, taken by `preview3d::update_terrain`
+    pending_terrain: Option<ExportMap>,
     // ui widgets
     gen_panel: PanelGenerator,
     export_panel: PanelExport,
@@ -201,6 +231,7 @@ impl MyApp {
             generation: 0,
             invalidation,
             export_step_names: Vec::new(),
+            pending_terrain: None,
             panel_2d,
             panel_3d: Panel3dView::new(image_size as f32),
             progress: 1.0,
@@ -373,15 +404,18 @@ impl MyApp {
             self.panel_2d.exit_mask_mode();
         }
     }
-    /// the previews; the 3D square's rect goes to `vp` so the scene camera follows it
-    fn render_central_panel(&mut self, root: &mut egui::Ui, vp: &mut PreviewViewport) {
-        // transparent: the scene camera's output shows through inside the 3D square, the
-        // panel colour is the egui camera's clear colour
-        let frame = Frame::central_panel(root.style()).fill(egui::Color32::TRANSPARENT);
+    /// the previews; the 3D square's rect goes to `vp` so the scene image follows its size,
+    /// `texture` is that image, painted by the 3D panel
+    fn render_central_panel(
+        &mut self,
+        root: &mut egui::Ui,
+        vp: &mut PreviewViewport,
+        texture: egui::TextureId,
+    ) {
         vp.rect = None;
         vp.pixels_per_point = root.ctx().pixels_per_point();
         egui::CentralPanel::default_margins()
-            .frame(frame)
+            .frame(Frame::central_panel(root.style()))
             .show(root, |ui| {
                 ui.heading("Terrain preview");
                 ui.horizontal(|ui| {
@@ -407,10 +441,11 @@ impl MyApp {
                     egui::CollapsingHeader::new("3d preview")
                         .default_open(true)
                         .show(ui, |ui| {
-                            vp.rect = Some(self.panel_3d.render(ui));
+                            vp.rect = Some(self.panel_3d.render(ui, texture));
                         });
                 });
             });
+        vp.conf = self.panel_3d.conf();
     }
     fn handle_threads_messages(&mut self) {
         let rx = self.thread2main_rx.get_mut().unwrap();
@@ -436,6 +471,7 @@ impl MyApp {
                 log("main<=Done");
                 self.panel_2d
                     .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
+                self.pending_terrain = Some(hmap);
                 self.gen_panel.selected_step = self.gen_panel.steps.len().saturating_sub(1);
                 self.gen_panel.is_running = false;
                 self.progress = 1.0;
@@ -518,7 +554,13 @@ impl MyApp {
 
 impl MyApp {
     /// one frame: drains the worker channel, lays out the panels, shows the error popup
-    fn update(&mut self, ctx: &egui::Context, vp: &mut PreviewViewport, winit: &mut WinitSettings) {
+    fn update(
+        &mut self,
+        ctx: &egui::Context,
+        vp: &mut PreviewViewport,
+        texture: egui::TextureId,
+        winit: &mut WinitSettings,
+    ) {
         let wsize = ctx.viewport_rect().size();
         let new_size = ((wsize.x - 340.0) * 0.5) as usize;
         if new_size != self.image_size && new_size != 0 {
@@ -530,6 +572,10 @@ impl MyApp {
         }
         ctx.set_theme(egui::Theme::Dark);
         self.handle_threads_messages();
+        if self.pending_terrain.is_some() {
+            // `update_terrain` runs in `Update`, before this pass: make the next frame come now
+            ctx.request_repaint();
+        }
         self.set_update_mode(winit);
         // egui 0.36 shows top-level panels into a root `Ui` covering the viewport
         let mut root = egui::Ui::new(
@@ -540,10 +586,10 @@ impl MyApp {
                 .max_rect(ctx.viewport_rect()),
         );
         self.render_left_panel(&mut root);
-        self.render_central_panel(&mut root, vp);
+        self.render_central_panel(&mut root, vp, texture);
 
         if let Some(ref err_msg) = self.err_msg {
-            // display error popup, over the 2D preview so it never sits under the scene camera
+            // display error popup, over the 2D preview
             let mut open = true;
             egui::Window::new("Error")
                 .resizable(false)

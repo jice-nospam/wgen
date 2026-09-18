@@ -52,14 +52,13 @@ You have a 2D preview displaying the heightmap (at current selected step in the 
 
 ![3D preview UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_2d.jpg)
 
-You also have a 3D preview displaying the final 3D mesh. The mesh uses the same resolution as the 2D preview.
-*The 3D preview is being rebuilt on Bevy: in the current development version the 3D square is empty; the widgets and camera controls below are inert until the terrain comes back.*
+You also have a 3D preview displaying the final 3D mesh, lit by a sun that casts shadows. The mesh uses the same resolution as the 2D preview.
 You can change the view by dragging the mouse cursor in the view :
 - rotate the terrain with left button
 - zoom with middle button
 - pan with right button
 
-You can also display a water plane with configurable height and a grid to help visualize the terrain.
+You can also stretch the terrain vertically (`Height scale %`), display a water plane with configurable height, and turn on a physically based sky (`Show skybox`).
 
 ![3D preview UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_3d.jpg)
 

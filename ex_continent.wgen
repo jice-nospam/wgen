@@ -61,31 +61,13 @@
     ), (
         disabled: false,
         mask: None,
-        typ: WaterErosion((
-            drop_amount: 0.5,
-            erosion_strength: 0.08,
-            evaporation: 0.05,
-            capacity: 6.0,
-            min_slope: 0.05,
-            deposition: 0.06,
-            inertia: 0.4,
-            radius: 4.0,
-        )),
-    ), (
-        disabled: false,
-        mask: None,
-        typ: Normalize((
-            min: 0.0,
-            max: 1.0,
-        )),
-    ), (
-        disabled: false,
-        mask: None,
-        typ: MudSlide((
-            iterations: 5.0,
-            max_erosion_alt: 1.0,
-            strength: 0.4,
+        typ: FluvialErosion((
+            strength: 0.6,
+            talus: 0.2,
+            uplift: 0.0,
+            iterations: 50,
             water_level: 0.0,
+            work_res: 512,
         )),
     )],
 )

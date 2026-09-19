@@ -15,6 +15,8 @@ use crate::generators::Progress;
 use crate::log;
 
 pub mod fbm;
+pub mod ping_pong;
+pub mod thermal_erosion;
 
 /// cells per band the twins pass to `run_per_pixel`: 16M cells = 64 MiB of `f32`
 pub const BAND_CELLS: usize = 16 << 20;
@@ -52,7 +54,31 @@ struct Band {
     rows: u32,
 }
 
-/// a compiled per-pixel kernel, cached by name
+/// the bind group layout a kernel is compiled against; a kernel has exactly one
+#[derive(Clone, Copy)]
+enum Layout {
+    /// `run_per_pixel`: 0 `Band`, 1 params, 2 the band cells read-write, 3 a read-only table
+    PerPixel,
+    /// `run_ping_pong`: 0 `Band`, 1 params, 2 `src` read-only, 3 `dst` read-write
+    PingPong,
+}
+
+impl Layout {
+    fn entries(self) -> [wgpu::BindGroupLayoutEntry; 4] {
+        let (two, three) = match self {
+            Layout::PerPixel => (false, true),
+            Layout::PingPong => (true, false),
+        };
+        [
+            buffer_entry(0, wgpu::BufferBindingType::Uniform),
+            buffer_entry(1, wgpu::BufferBindingType::Uniform),
+            buffer_entry(2, wgpu::BufferBindingType::Storage { read_only: two }),
+            buffer_entry(3, wgpu::BufferBindingType::Storage { read_only: three }),
+        ]
+    }
+}
+
+/// a compiled kernel, cached by name
 struct Kernel {
     pipeline: wgpu::ComputePipeline,
     layout: wgpu::BindGroupLayout,
@@ -74,6 +100,7 @@ pub struct GpuContext {
     failed: AtomicBool,
     pipelines: Mutex<HashMap<&'static str, Kernel>>,
     band_buffers: Mutex<Option<BandBuffers>>,
+    ping_pong_buffers: Mutex<Option<ping_pong::PingPongBuffers>>,
 }
 
 impl GpuContext {
@@ -121,6 +148,7 @@ impl GpuContext {
             failed: AtomicBool::new(false),
             pipelines: Mutex::new(HashMap::new()),
             band_buffers: Mutex::new(None),
+            ping_pong_buffers: Mutex::new(None),
         });
         let weak = Arc::downgrade(&ctx);
         ctx.device.on_uncaptured_error(Arc::new(move |e| {
@@ -219,7 +247,7 @@ impl GpuContext {
     ) -> Result<Pass<'_>, GpuError> {
         let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let oom = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-        let (pipeline, layout) = self.kernel(kernel, wgsl);
+        let (pipeline, layout) = self.kernel(kernel, wgsl, Layout::PerPixel);
         let buffers = self.band_buffers(band_cells as u64 * 4);
         let band = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("band"),
@@ -325,11 +353,12 @@ impl GpuContext {
         Ok(())
     }
 
-    /// the cached pipeline for `name`, compiled from `wgsl` on first use
+    /// the cached pipeline for `name`, compiled from `wgsl` against `layout` on first use
     fn kernel(
         &self,
         name: &'static str,
         wgsl: &'static str,
+        layout: Layout,
     ) -> (wgpu::ComputePipeline, wgpu::BindGroupLayout) {
         let mut cache = self.pipelines.lock().unwrap();
         let k = cache.entry(name).or_insert_with(|| {
@@ -343,12 +372,7 @@ impl GpuContext {
                 .device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some(name),
-                    entries: &[
-                        buffer_entry(0, wgpu::BufferBindingType::Uniform),
-                        buffer_entry(1, wgpu::BufferBindingType::Uniform),
-                        buffer_entry(2, wgpu::BufferBindingType::Storage { read_only: false }),
-                        buffer_entry(3, wgpu::BufferBindingType::Storage { read_only: true }),
-                    ],
+                    entries: &layout.entries(),
                 });
             let pipeline_layout =
                 self.device

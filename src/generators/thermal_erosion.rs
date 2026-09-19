@@ -98,21 +98,21 @@ fn render_thermal_row(ui: &mut egui::Ui, conf: &mut ThermalErosionConf) {
 
 /// the conf converted to the working grid : `scale` is working cells per reference cell.
 /// Shared with FluvialErosion, which runs `slide_pass` between two incisions
-pub(super) struct ThermalParams {
+pub(crate) struct ThermalParams {
     /// per-cell height difference above which an axis neighbour receives material
-    pub(super) threshold: f32,
+    pub(crate) threshold: f32,
     /// the same for a diagonal neighbour, √2 further away
-    pub(super) diag_threshold: f32,
-    pub(super) strength: f32,
-    pub(super) passes: usize,
-    pub(super) water_level: f32,
+    pub(crate) diag_threshold: f32,
+    pub(crate) strength: f32,
+    pub(crate) passes: usize,
+    pub(crate) water_level: f32,
 }
 
 impl ThermalParams {
     /// `talus` maps to the threshold through `TALUS_MAX * (1 - talus)²` : the square spreads the
     /// visible part of the effect (thresholds below a stock map's median slope) over most of the
     /// 0..1 range instead of its last tenth
-    pub(super) fn new(conf: &ThermalErosionConf, scale: f32) -> Self {
+    pub(crate) fn new(conf: &ThermalErosionConf, scale: f32) -> Self {
         let threshold = TALUS_MAX * (1.0 - conf.talus).powi(2) / scale;
         Self {
             threshold,
@@ -124,15 +124,23 @@ impl ThermalParams {
     }
 }
 
+/// the working grid the passes run on and the conf converted to it; shared with the GPU twin
+pub(crate) fn thermal_plan(
+    size: (usize, usize),
+    conf: &ThermalErosionConf,
+) -> ((usize, usize), ThermalParams) {
+    let work = work_size(size, conf.work_res as usize);
+    let scale = work.0.max(work.1) as f32 / REFERENCE_RES;
+    (work, ThermalParams::new(conf, scale))
+}
+
 pub fn gen_thermal_erosion(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &ThermalErosionConf,
     progress: &mut Progress,
 ) {
-    let work = work_size(size, conf.work_res as usize);
-    let scale = work.0.max(work.1) as f32 / REFERENCE_RES;
-    let params = ThermalParams::new(conf, scale);
+    let (work, params) = thermal_plan(size, conf);
     if work == size {
         slide_passes(size, hmap, &params, progress);
         return;

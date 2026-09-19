@@ -10,7 +10,7 @@ use crate::generators::{
     IslandConf, LandMassConf, MidPointConf, MudSlideConf, NormalizeConf, Progress,
     ThermalErosionConf, WaterErosionConf,
 };
-use crate::gpu::{fbm::gen_fbm_gpu, Backend};
+use crate::gpu::{fbm::gen_fbm_gpu, thermal_erosion::gen_thermal_erosion_gpu, Backend};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 /// Each value contains its own configuration
@@ -121,7 +121,15 @@ impl StepType {
             StepType::Normalize(conf) => gen_normalize(h, conf),
             StepType::LandMass(conf) => gen_landmass(size, h, conf, progress),
             StepType::MudSlide(conf) => gen_mudslide(size, h, conf, progress),
-            StepType::ThermalErosion(conf) => gen_thermal_erosion(size, h, conf, progress),
+            StepType::ThermalErosion(conf) => match backend.gpu() {
+                Some(gpu) => {
+                    if let Err(e) = gen_thermal_erosion_gpu(gpu, size, h, conf, progress) {
+                        crate::log(&format!("gpu=>thermal fell back to the CPU: {}", e.0));
+                        gen_thermal_erosion(size, h, conf, progress)
+                    }
+                }
+                None => gen_thermal_erosion(size, h, conf, progress),
+            },
             StepType::WaterErosion(conf) => gen_water_erosion(seed, size, h, conf, progress),
             StepType::FluvialErosion(conf) => gen_fluvial_erosion(size, h, conf, progress),
             StepType::Island(conf) => gen_island(size, h, conf, progress),
@@ -196,6 +204,38 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0f32, f32::max);
         assert!(diff <= 2e-3, "max |cpu - gpu| = {diff}");
+    }
+
+    #[test]
+    fn thermal_step_agrees_across_backends() {
+        let Some(gpu) = crate::gpu::test_context() else {
+            return;
+        };
+        let step = StepType::ThermalErosion(ThermalErosionConf::default());
+        let input = crate::generators::calib::stock_map(9, (64, 64));
+        let mut cpu = input.clone();
+        let mut on_gpu = input.clone();
+        step.run(
+            9,
+            (64, 64),
+            &mut cpu,
+            &mut Progress::headless(),
+            &Backend::Cpu,
+        );
+        step.run(
+            9,
+            (64, 64),
+            &mut on_gpu,
+            &mut Progress::headless(),
+            &Backend::Gpu(gpu),
+        );
+        assert!(cpu != input, "the step did nothing");
+        let diff = cpu
+            .iter()
+            .zip(&on_gpu)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert!(diff <= 1e-4, "max |cpu - gpu| = {diff}");
     }
 
     #[test]

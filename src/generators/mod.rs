@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod calib;
+pub(crate) mod calib;
 mod fbm;
 mod flow;
 mod fluvial_erosion;
@@ -28,6 +28,7 @@ pub use normalize::{gen_normalize, NormalizeConf};
 pub use par_rows::par_rows;
 pub use resample::{add_upsampled, bilinear, downsample, work_size};
 pub use thermal_erosion::{gen_thermal_erosion, render_thermal_erosion, ThermalErosionConf};
+pub(crate) use thermal_erosion::{thermal_plan, ThermalParams};
 pub use water_erosion::{gen_water_erosion, render_water_erosion, WaterErosionConf};
 
 use crate::ThreadMessage;

@@ -205,4 +205,139 @@ mod tests {
             println!("fluvial {side} : {:.2} s", elapsed.as_secs_f32());
         }
     }
+
+    /// `cargo test generator_timing_report -- --ignored --nocapture`: every generator at export
+    /// sizes, one line each; the numbers that decide which generator deserves a GPU twin
+    #[test]
+    #[ignore]
+    fn generator_timing_report() {
+        use super::super::*;
+        fn time(label: &str, f: impl FnOnce()) {
+            let start = Instant::now();
+            f();
+            println!("{label:<44} {:>9.0} ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
+        let sides: Vec<usize> = std::env::var("WGEN_BENCH_SIDES")
+            .map(|v| v.split(',').map(|s| s.parse().unwrap()).collect())
+            .unwrap_or_else(|_| vec![4096, 8192]);
+        let work_res: Vec<u32> = std::env::var("WGEN_BENCH_WORK_RES")
+            .map(|v| v.split(',').map(|s| s.parse().unwrap()).collect())
+            .unwrap_or_else(|_| vec![512, 2048]);
+        for side in sides {
+            let size = (side, side);
+            let mut p = Progress::headless();
+            let mut base = vec![0.0; side * side];
+            time(&format!("fbm cpu {side}"), || {
+                gen_fbm(1, size, &mut base, &FbmConf::default(), &mut p)
+            });
+            if let Some(gpu) = crate::gpu::test_context() {
+                let mut h = vec![0.0; side * side];
+                time(&format!("fbm gpu {side}"), || {
+                    crate::gpu::fbm::gen_fbm_gpu(&gpu, 1, size, &mut h, &FbmConf::default(), &mut p)
+                        .unwrap()
+                });
+            }
+            normalize(&mut base, 0.0, 1.0);
+            let mut h = vec![0.0; side * side];
+            time(&format!("hills {side}"), || {
+                gen_hills(1, size, &mut h, &HillsConf::default(), &mut p)
+            });
+            time(&format!("mid_point {side}"), || {
+                gen_mid_point(1, size, &mut h, &MidPointConf::default(), &mut p)
+            });
+            h.copy_from_slice(&base);
+            time(&format!("landmass {side}"), || {
+                gen_landmass(size, &mut h, &LandMassConf::default(), &mut p)
+            });
+            time(&format!("island {side}"), || {
+                gen_island(size, &mut h, &IslandConf::default(), &mut p)
+            });
+            time(&format!("normalize {side}"), || {
+                gen_normalize(&mut h, &NormalizeConf::default())
+            });
+            time(&format!("mudslide {side}"), || {
+                gen_mudslide(size, &mut h, &MudSlideConf::default(), &mut p)
+            });
+            h.copy_from_slice(&base);
+            time(&format!("water_erosion {side} work 512"), || {
+                gen_water_erosion(1, size, &mut h, &WaterErosionConf::default(), &mut p)
+            });
+            for &wr in &work_res {
+                h.copy_from_slice(&base);
+                let conf = ThermalErosionConf { work_res: wr, ..Default::default() };
+                time(&format!("thermal {side} work {wr}"), || {
+                    gen_thermal_erosion(size, &mut h, &conf, &mut p)
+                });
+                if let Some(gpu) = crate::gpu::test_context() {
+                    h.copy_from_slice(&base);
+                    time(&format!("thermal gpu {side} work {wr}"), || {
+                        crate::gpu::thermal_erosion::gen_thermal_erosion_gpu(
+                            &gpu, size, &mut h, &conf, &mut p,
+                        )
+                        .unwrap()
+                    });
+                }
+                h.copy_from_slice(&base);
+                let conf = FluvialErosionConf { work_res: wr, ..Default::default() };
+                time(&format!("fluvial {side} work {wr}"), || {
+                    gen_fluvial_erosion(size, &mut h, &conf, &mut p)
+                });
+            }
+        }
+    }
+
+    /// `cargo test phase_timing_report -- --ignored --nocapture`: the phases behind the slow
+    /// lines of `generator_timing_report` (fluvial routing vs slide, MidPoint draws vs resample,
+    /// Hills at heavy settings)
+    #[test]
+    #[ignore]
+    fn phase_timing_report() {
+        use super::super::thermal_erosion::{slide_pass, ThermalParams};
+        use super::super::*;
+        use rand::{rngs::StdRng, Rng, SeedableRng};
+        fn time(label: &str, f: impl FnOnce()) {
+            let start = Instant::now();
+            f();
+            println!("{label:<44} {:>9.0} ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
+        let mut p = Progress::headless();
+        for work in [512usize, 1024, 2048] {
+            let size = (work, work);
+            let h = stock_map(1, size);
+            let mut net = FlowNet::new();
+            time(&format!("fluvial route {work}"), || net.route(size, &h, 0.0));
+            let params = ThermalParams::new(&ThermalErosionConf::default(), work as f32 / 512.0);
+            let mut out = h.clone();
+            time(&format!("thermal slide_pass {work}"), || {
+                slide_pass(size, &h, &mut out, &params, 0.0, 1.0, &mut p);
+            });
+        }
+        let side = 8192usize;
+        let n = side + 1;
+        time("mid_point 8192: 67M StdRng draws", || {
+            let mut rng = StdRng::seed_from_u64(1);
+            let mut acc = 0.0f32;
+            for _ in 0..n * n {
+                acc += rng.random_range(-0.5f32..0.5);
+            }
+            assert!(acc.is_finite());
+        });
+        let lattice: Vec<f32> = (0..n * n).map(|i| (i % 7) as f32).collect();
+        let mut h = vec![0.0f32; side * side];
+        time("mid_point 8192: lattice->map bilinear", || {
+            let scale = side as f32 / side as f32;
+            for y in 0..side {
+                for x in 0..side {
+                    h[x + y * side] = bilinear(&lattice, x as f32 * scale, y as f32 * scale, (n, n));
+                }
+            }
+        });
+        for (nb_hill, base_radius) in [(2000usize, 40.0f32), (5000, 16.0), (600, 100.0)] {
+            let conf = HillsConf { nb_hill, base_radius, ..Default::default() };
+            h.fill(0.0);
+            time(&format!("hills 8192 count {nb_hill} radius {base_radius}"), || {
+                gen_hills(1, (side, side), &mut h, &conf, &mut p)
+            });
+        }
+    }
 }

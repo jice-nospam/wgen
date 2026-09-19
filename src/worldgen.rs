@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::generators::{get_min_max, Progress};
+use crate::gpu::{Backend, GpuContext};
 pub use crate::step::{Step, StepType};
 use crate::{log, panic_message, ThreadMessage, Waker, MASK_SIZE};
 
@@ -25,6 +26,8 @@ pub enum WorldGenCommand {
     /// cancel queued ExecuteStep commands from a specific step; the running step stops on its own
     /// through `Invalidation`
     Abort(usize),
+    /// run the generators that have a GPU twin on the GPU (true) or on the CPU (false)
+    SetBackend(bool),
 }
 
 /// the newest `regen`'s (generation, from): a running step of an older generation whose index
@@ -79,6 +82,8 @@ pub struct WorldGenerator {
     /// preview path : one map per step, `hmap[i]` is the output of step i.
     /// export path : a single map, the output of the last step.
     hmap: Vec<HMap>,
+    /// where the generators with a GPU twin run
+    backend: Backend,
 }
 
 struct InnerStep {
@@ -94,8 +99,8 @@ fn do_command(
     wgen: &mut WorldGenerator,
     steps: &mut Vec<InnerStep>,
     tx: &Sender<ThreadMessage>,
+    gpu: &Option<Arc<GpuContext>>,
 ) {
-    log(&format!("wgen<={:?}", msg));
     match msg {
         WorldGenCommand::Clear => wgen.clear(),
         WorldGenCommand::SetSeed(new_seed) => wgen.seed = new_seed,
@@ -122,7 +127,15 @@ fn do_command(
             ));
         }
         WorldGenCommand::Abort(from_idx) => steps.retain(|s| s.index < from_idx),
-        WorldGenCommand::SetSize(size) => *wgen = WorldGenerator::new(wgen.seed, (size, size)),
+        WorldGenCommand::SetSize(size) => {
+            let backend = wgen.backend.clone();
+            *wgen = WorldGenerator::new(wgen.seed, (size, size));
+            wgen.set_backend(backend);
+        }
+        WorldGenCommand::SetBackend(on) => wgen.set_backend(match gpu {
+            Some(g) if on => Backend::Gpu(g.clone()),
+            _ => Backend::Cpu,
+        }),
     }
 }
 
@@ -133,19 +146,23 @@ pub fn generator_thread(
     tx: Sender<ThreadMessage>,
     wake: Waker,
     invalidation: Invalidation,
+    gpu: Option<Arc<GpuContext>>,
 ) {
     let mut wgen = WorldGenerator::new(seed, (size, size));
+    if let Some(g) = &gpu {
+        wgen.set_backend(Backend::Gpu(g.clone()));
+    }
     let mut steps = Vec::new();
     loop {
         if steps.is_empty() {
             // blocking wait; a closed channel means the main thread is gone
             match rx.recv() {
-                Ok(msg) => do_command(msg, &mut wgen, &mut steps, &tx),
+                Ok(msg) => do_command(msg, &mut wgen, &mut steps, &tx, &gpu),
                 Err(_) => return,
             }
         }
         while let Ok(msg) = rx.try_recv() {
-            do_command(msg, &mut wgen, &mut steps, &tx);
+            do_command(msg, &mut wgen, &mut steps, &tx, &gpu);
         }
         if steps.is_empty() {
             continue;
@@ -166,7 +183,6 @@ pub fn generator_thread(
         }));
         if result.is_ok() && invalidation.is_stale(generation, index) {
             // a newer regen recomputes this step: its map is garbage and its result unwanted
-            log(&format!("wgen=>Cancelled({})", index));
             continue;
         }
         let msg = match result {
@@ -181,21 +197,17 @@ pub fn generator_thread(
                 ))
             }
             Ok(()) if steps.is_empty() => {
-                log("wgen=>Done");
                 ThreadMessage::GeneratorDone(generation, wgen.get_export_map())
             }
-            Ok(()) => {
-                log(&format!("wgen=>GeneratorStepDone({})", index));
-                ThreadMessage::GeneratorStepDone(
-                    generation,
-                    index,
-                    if live {
-                        Some(wgen.get_step_export_map(index))
-                    } else {
-                        None
-                    },
-                )
-            }
+            Ok(()) => ThreadMessage::GeneratorStepDone(
+                generation,
+                index,
+                if live {
+                    Some(wgen.get_step_export_map(index))
+                } else {
+                    None
+                },
+            ),
         };
         let _ = tx.send(msg);
         // wake the UI thread so the message is handled without waiting for user input
@@ -209,7 +221,11 @@ impl WorldGenerator {
             seed,
             world_size,
             hmap: Vec::new(),
+            backend: Backend::Cpu,
         }
+    }
+    pub fn set_backend(&mut self, backend: Backend) {
+        self.backend = backend;
     }
     pub fn get_export_map(&self) -> ExportMap {
         self.get_step_export_map(if self.hmap.is_empty() {
@@ -237,7 +253,7 @@ impl WorldGenerator {
         0.0
     }
     pub fn clear(&mut self) {
-        *self = WorldGenerator::new(self.seed, self.world_size);
+        self.hmap.clear();
     }
 
     /// preview path : (re)computes step `index` from the output of step `index - 1`, keeping every
@@ -297,7 +313,7 @@ impl WorldGenerator {
     fn run_step(&self, step: &Step, h: &mut [f32], prev: Option<&[f32]>, progress: &mut Progress) {
         let (seed, size) = (self.seed, self.world_size);
         if !step.disabled {
-            step.typ.run(seed, size, h, progress);
+            step.typ.run(seed, size, h, progress, &self.backend);
         }
         if let Some(ref mask) = step.mask {
             apply_mask(size, mask, prev, h);
@@ -415,7 +431,13 @@ mod tests {
         let (tx, _) = mpsc::channel();
         let mut wgen = WorldGenerator::new(1, (8, 8));
         let mut queue = Vec::new();
-        do_command(WorldGenCommand::DeleteStep(3), &mut wgen, &mut queue, &tx);
+        do_command(
+            WorldGenCommand::DeleteStep(3),
+            &mut wgen,
+            &mut queue,
+            &tx,
+            &None,
+        );
         assert!(wgen.hmap.is_empty());
         for i in 0..3 {
             do_command(
@@ -423,9 +445,10 @@ mod tests {
                 &mut wgen,
                 &mut queue,
                 &tx,
+                &None,
             );
         }
-        do_command(WorldGenCommand::Abort(1), &mut wgen, &mut queue, &tx);
+        do_command(WorldGenCommand::Abort(1), &mut wgen, &mut queue, &tx, &None);
         assert_eq!(queue.len(), 1);
     }
 

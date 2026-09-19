@@ -41,6 +41,9 @@ The current version features those generators :
 - FluvialErosion : carves a dendritic valley network with the stream-power law, talus crumbling into the valleys as in ThermalErosion
 - Island : lower the altitude along the borders of the map
 
+### GPU
+When a Vulkan / DirectX 12 / Metal GPU is present, the generators that have a GPU version (currently Fbm) run on it, for the preview and the export alike. The generator panel then shows `GPU: <adapter name>` and a `Use GPU` checkbox; unticking it recomputes everything on the CPU. GPU and CPU results agree to floating-point rounding, so the terrain does not change when you toggle it. Set the environment variable `WGEN_CPU=1` to start wgen without a GPU. If the GPU fails at any point, wgen logs it and falls back to the CPU for the rest of the session.
+
 ## Masks
 You can add a mask to a generator step by clicking the square next to the generator name.
 You can then edit the mask using a painting brush. The generator effect will be scaled depending on the mask color.

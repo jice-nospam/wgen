@@ -6,6 +6,7 @@ extern crate rand;
 mod exporter;
 mod fps;
 mod generators;
+mod gpu;
 mod panel_2dview;
 mod panel_3dview;
 mod panel_export;
@@ -23,11 +24,13 @@ use bevy::camera::CameraUpdateSystems;
 use bevy::log::{Level, LogPlugin};
 use bevy::pbr::DefaultOpaqueRendererMethod;
 use bevy::prelude::*;
+use bevy::render::renderer::RenderAdapterInfo;
 use bevy::window::PrimaryWindow;
 use bevy::winit::{EventLoopProxyWrapper, UpdateMode, WinitSettings, WinitUserEvent};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use egui::{Frame, Id, LayerId, UiBuilder};
 use exporter::export_heightmap;
+use gpu::{Backend, GpuContext};
 use std::any::Any;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -136,13 +139,16 @@ fn setup(
     mut commands: Commands,
     proxy: Res<EventLoopProxyWrapper>,
     mut window: Single<&mut Window, With<PrimaryWindow>>,
+    adapter: Option<Res<RenderAdapterInfo>>,
 ) {
     window.set_maximized(true);
     let p = (*proxy).clone();
     let wake: Waker = Arc::new(move || {
         let _ = p.send_event(WinitUserEvent::WakeUp);
     });
-    commands.insert_resource(MyApp::new(wake));
+    // the generators' own device, on the renderer's adapter when there are several
+    let gpu = GpuContext::new(adapter.as_deref().map(|i| i.name.as_str()));
+    commands.insert_resource(MyApp::new(wake, gpu));
 }
 
 /// one egui frame
@@ -182,6 +188,8 @@ struct MyApp {
     export_step_names: Vec<String>,
     /// the heightmap the 3D terrain must be rebuilt from, taken by `preview3d::update_terrain`
     pending_terrain: Option<ExportMap>,
+    /// the generators' compute device, shared with the generator thread and every export thread
+    gpu: Option<Arc<GpuContext>>,
     // ui widgets
     gen_panel: PanelGenerator,
     export_panel: PanelExport,
@@ -201,7 +209,7 @@ struct MyApp {
 }
 
 impl MyApp {
-    fn new(wake: Waker) -> Self {
+    fn new(wake: Waker, gpu: Option<Arc<GpuContext>>) -> Self {
         let preview_size = 128;
         let image_size = 790; //368;
         let seed = 0xdeadbeef;
@@ -214,6 +222,10 @@ impl MyApp {
         let gen_tx = exp2main_tx.clone();
         let invalidation = Invalidation::default();
         let thread_invalidation = invalidation.clone();
+        let thread_gpu = gpu.clone();
+        let mut gen_panel = PanelGenerator::default();
+        gen_panel.gpu_name = gpu.as_ref().map(|g| g.adapter_name().to_string());
+        gen_panel.use_gpu = gpu.is_some();
         thread::spawn(move || {
             generator_thread(
                 seed,
@@ -222,6 +234,7 @@ impl MyApp {
                 gen_tx,
                 wake,
                 thread_invalidation,
+                thread_gpu,
             );
         });
         Self {
@@ -238,13 +251,14 @@ impl MyApp {
             exporter_progress: 1.0,
             exporter_text: String::new(),
             exporter_cur_step: 0,
-            gen_panel: PanelGenerator::default(),
+            gen_panel,
             export_panel: PanelExport::default(),
             load_save_panel: PanelSaveLoad::default(),
             thread2main_rx: Mutex::new(thread2main_rx),
             main2wgen_tx: main2gen_tx,
             exp2main_tx,
             err_msg: None,
+            gpu,
         }
     }
 }
@@ -257,10 +271,21 @@ impl MyApp {
         let seed = self.seed;
         let tx = self.exp2main_tx.clone();
         let min_progress_step = 0.01 * self.gen_panel.enabled_steps() as f32;
+        let backend = match &self.gpu {
+            Some(g) if self.gen_panel.use_gpu => Backend::Gpu(g.clone()),
+            _ => Backend::Cpu,
+        };
         thread::spawn(move || {
             // a panic must still end the export, or the export panel stays disabled forever
             let res = catch_unwind(AssertUnwindSafe(|| {
-                export_heightmap(seed, &steps, &export_panel, tx.clone(), min_progress_step)
+                export_heightmap(
+                    seed,
+                    &steps,
+                    &export_panel,
+                    tx.clone(),
+                    min_progress_step,
+                    backend,
+                )
             }))
             .unwrap_or_else(|payload| Err(panic_message(payload.as_ref())));
             let _ = tx.send(ThreadMessage::ExporterDone(res));
@@ -305,6 +330,13 @@ impl MyApp {
         self.seed = new_seed;
         self.main2wgen_tx
             .send(WorldGenCommand::SetSeed(new_seed))
+            .unwrap();
+        self.regen(None, 0);
+    }
+    /// a backend change invalidates every step
+    fn set_backend(&mut self, on: bool) {
+        self.main2wgen_tx
+            .send(WorldGenCommand::SetBackend(on))
             .unwrap();
         self.regen(None, 0);
     }
@@ -382,6 +414,9 @@ impl MyApp {
                     }
                     Some(GeneratorAction::SetSeed(new_seed)) => {
                         self.set_seed(new_seed);
+                    }
+                    Some(GeneratorAction::SetBackend(on)) => {
+                        self.set_backend(on);
                     }
                     Some(GeneratorAction::Regen { delete, from }) => {
                         self.regen(delete, from);
@@ -468,7 +503,6 @@ impl MyApp {
                 if generation != self.generation {
                     return;
                 }
-                log("main<=Done");
                 self.panel_2d
                     .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
                 self.pending_terrain = Some(hmap);
@@ -480,7 +514,6 @@ impl MyApp {
                 if generation != self.generation {
                     return;
                 }
-                log(&format!("main<=GeneratorStepDone({})", step));
                 if let Some(ref hmap) = hmap {
                     self.panel_2d
                         .refresh(self.image_size, self.preview_size as u32, Some(hmap));
@@ -511,7 +544,6 @@ impl MyApp {
                 self.exporter_text = self.export_progress_text();
             }
             ThreadMessage::ExporterStepDone(step) => {
-                log(&format!("main<=ExporterStepDone({})", step));
                 self.exporter_progress =
                     (step + 1) as f32 / self.export_step_names.len().max(1) as f32;
                 self.exporter_cur_step = step + 1;
@@ -527,7 +559,6 @@ impl MyApp {
                     log(&err_msg);
                     self.err_msg = Some(err_msg);
                 }
-                log("main<=ExporterDone");
                 self.exporter_progress = 1.0;
                 self.export_panel.enabled = true;
                 self.exporter_cur_step = 0;

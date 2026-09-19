@@ -1,6 +1,7 @@
 use std::{path::Path, sync::mpsc::Sender};
 
 use crate::{
+    gpu::Backend,
     panel_export::{ExportFileType, PanelExport},
     worldgen::{Step, WorldGenerator},
     ThreadMessage,
@@ -17,6 +18,8 @@ pub fn export_heightmap(
     tx: Sender<ThreadMessage>,
     // minimum amount of progress to report (below this value, the global %age won't change)
     min_progress_step: f32,
+    // where the generators with a GPU twin run
+    backend: Backend,
 ) -> Result<(), String> {
     let file_width = export_data.export_width as usize;
     let file_height = export_data.export_height as usize;
@@ -27,6 +30,7 @@ pub fn export_heightmap(
             file_height * export_data.tiles_v as usize,
         ),
     );
+    wgen.set_backend(backend);
     wgen.generate(steps, tx, min_progress_step);
 
     let (min, max) = wgen.get_min_max();

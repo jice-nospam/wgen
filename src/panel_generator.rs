@@ -19,6 +19,8 @@ pub enum GeneratorAction {
     SetSeed(u64),
     /// remove all steps
     Clear,
+    /// run the generators that have a GPU twin on the GPU (true) or on the CPU (false)
+    SetBackend(bool),
 }
 
 pub struct PanelGenerator {
@@ -38,6 +40,10 @@ pub struct PanelGenerator {
     hovered: bool,
     /// random number generator's seed
     pub seed: u64,
+    /// the compute device's adapter name; `None` when the generators have no GPU
+    pub gpu_name: Option<String>,
+    /// the `Use GPU` checkbox
+    pub use_gpu: bool,
 }
 
 impl Default for PanelGenerator {
@@ -54,6 +60,8 @@ impl Default for PanelGenerator {
             move_to_pos: 0,
             hovered: false,
             seed: 0xdeadbeef,
+            gpu_name: None,
+            use_gpu: false,
         }
     }
 }
@@ -138,6 +146,26 @@ impl PanelGenerator {
             ui.spacing_mut().interact_size.x = old_size;
             if self.seed != old_seed {
                 action = Some(GeneratorAction::SetSeed(self.seed));
+            }
+        });
+        action.or(self.render_gpu_row(ui))
+    }
+    /// the compute device and the `Use GPU` checkbox; nothing when there is no GPU
+    fn render_gpu_row(&mut self, ui: &mut egui::Ui) -> Option<GeneratorAction> {
+        let label = format!("GPU: {}", self.gpu_name.as_ref()?);
+        let mut action = None;
+        ui.horizontal(|ui| {
+            ui.label(label)
+                .on_hover_text("Compute device used by the generators");
+            if ui
+                .checkbox(&mut self.use_gpu, "Use GPU")
+                .on_hover_text(
+                    "Run the generators that have a GPU version on the GPU (Fbm); off = CPU",
+                )
+                .changed()
+            {
+                self.exit_mask_mode();
+                action = Some(GeneratorAction::SetBackend(self.use_gpu));
             }
         });
         action

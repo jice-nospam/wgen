@@ -5,6 +5,7 @@
 ### Added
 
 - 3D preview: physically based sky (`Show skybox`) with sun disk, aerial perspective and sky-lit shadows; `Sun elevation °` and `Exposure EV` controls
+- Fbm runs on the GPU (wgpu compute, own device) when one is available, preview and export alike; `GPU: <adapter>` label and `Use GPU` checkbox in the generator panel; `WGEN_CPU=1` forces the CPU
 
 ### Changed
 

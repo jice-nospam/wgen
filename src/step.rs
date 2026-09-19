@@ -10,6 +10,7 @@ use crate::generators::{
     IslandConf, LandMassConf, MidPointConf, MudSlideConf, NormalizeConf, Progress,
     ThermalErosionConf, WaterErosionConf,
 };
+use crate::gpu::{fbm::gen_fbm_gpu, Backend};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 /// Each value contains its own configuration
@@ -94,11 +95,28 @@ impl StepType {
         }
     }
     /// runs the generator on `h`, which holds the previous step's output; a cancelled
-    /// `progress` makes the generator return early with `h` in an unspecified state
-    pub fn run(&self, seed: u64, size: (usize, usize), h: &mut [f32], progress: &mut Progress) {
+    /// `progress` makes the generator return early with `h` in an unspecified state.
+    /// A generator with a GPU twin runs it when `backend` offers a context, and falls back to
+    /// the CPU generator when the twin fails before writing anything
+    pub fn run(
+        &self,
+        seed: u64,
+        size: (usize, usize),
+        h: &mut [f32],
+        progress: &mut Progress,
+        backend: &Backend,
+    ) {
         match self {
             StepType::Hills(conf) => gen_hills(seed, size, h, conf, progress),
-            StepType::Fbm(conf) => gen_fbm(seed, size, h, conf, progress),
+            StepType::Fbm(conf) => match backend.gpu() {
+                Some(gpu) => {
+                    if let Err(e) = gen_fbm_gpu(gpu, seed, size, h, conf, progress) {
+                        crate::log(&format!("gpu=>fbm fell back to the CPU: {}", e.0));
+                        gen_fbm(seed, size, h, conf, progress)
+                    }
+                }
+                None => gen_fbm(seed, size, h, conf, progress),
+            },
             StepType::MidPoint(conf) => gen_mid_point(seed, size, h, conf, progress),
             StepType::Normalize(conf) => gen_normalize(h, conf),
             StepType::LandMass(conf) => gen_landmass(size, h, conf, progress),
@@ -148,6 +166,36 @@ mod tests {
             let variant = debug.split('(').next().unwrap();
             assert_eq!(typ.name(), variant);
         }
+    }
+
+    #[test]
+    fn fbm_step_agrees_across_backends() {
+        let Some(gpu) = crate::gpu::test_context() else {
+            return;
+        };
+        let step = StepType::Fbm(FbmConf::default());
+        let mut cpu = vec![0.0; 64 * 64];
+        let mut on_gpu = vec![0.0; 64 * 64];
+        step.run(
+            9,
+            (64, 64),
+            &mut cpu,
+            &mut Progress::headless(),
+            &Backend::Cpu,
+        );
+        step.run(
+            9,
+            (64, 64),
+            &mut on_gpu,
+            &mut Progress::headless(),
+            &Backend::Gpu(gpu),
+        );
+        let diff = cpu
+            .iter()
+            .zip(&on_gpu)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f32, f32::max);
+        assert!(diff <= 2e-3, "max |cpu - gpu| = {diff}");
     }
 
     #[test]

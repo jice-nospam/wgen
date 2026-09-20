@@ -89,7 +89,7 @@ fn parse_version(version: &str) -> Option<(u32, u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generators::{HillsConf, NormalizeConf};
+    use crate::generators::{HillsConf, NormalizeConf, RidgedConf};
     use crate::worldgen::StepType;
     use crate::MASK_SIZE;
 
@@ -150,9 +150,33 @@ mod tests {
         assert!(mask_lines[0].contains("0.25"));
         // the feather sits on its own line right after the mask, one field per line
         let lines: Vec<&str> = text.lines().collect();
-        let mask_at = lines.iter().position(|l| l.contains("mask: Some(")).unwrap();
+        let mask_at = lines
+            .iter()
+            .position(|l| l.contains("mask: Some("))
+            .unwrap();
         assert_eq!(lines[mask_at + 1].trim(), "mask_feather: 0.3,");
         assert!(text.lines().count() < 40, "{}", text);
+        assert_eq!(Project::from_ron(&text).unwrap(), project);
+    }
+
+    #[test]
+    fn new_generators_round_trip() {
+        let project = Project::new(
+            7,
+            vec![Step {
+                typ: StepType::Ridged(RidgedConf {
+                    zoom: 5.0,
+                    octaves: 3.0,
+                    scale: 0.7,
+                    fold: 10.0,
+                    fold_zoom: 2.0,
+                    offset_x: 30.0,
+                    offset_y: 70.0,
+                }),
+                ..Default::default()
+            }],
+        );
+        let text = project.to_ron().unwrap();
         assert_eq!(Project::from_ron(&text).unwrap(), project);
     }
 

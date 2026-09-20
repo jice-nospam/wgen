@@ -1,5 +1,5 @@
 (
-    version: "0.5.2",
+    version: "0.6.0",
     seed: 3735928559,
     steps: [(
         disabled: false,

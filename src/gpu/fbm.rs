@@ -5,6 +5,7 @@ use bytemuck::{Pod, Zeroable};
 use noise::permutationtable::{NoiseHasher, PermutationTable};
 
 use super::{GpuContext, GpuError, BAND_CELLS};
+use crate::generators::noise_field::stream_seed;
 use crate::generators::{FbmConf, Progress};
 
 const FBM_WGSL: &str = concat!(include_str!("noise.wgsl"), include_str!("fbm.wgsl"));
@@ -38,6 +39,22 @@ pub fn perm_tables(seed: u32, octaves: usize) -> Vec<u32> {
         .collect()
 }
 
+/// the permutation tables of several noise streams, concatenated: stream `k` with `octaves`
+/// tables is `perm_tables(stream_seed(seed, k), octaves)`, and its first table index is the sum
+/// of the octave counts before it
+pub(super) fn stream_tables(seed: u64, streams: &[(u32, usize)]) -> Vec<u32> {
+    streams
+        .iter()
+        .flat_map(|&(stream, octaves)| perm_tables(stream_seed(seed, stream), octaves))
+        .collect()
+}
+
+/// the crate's `Fbm` scale factor, `1 / Σ 0.5ᵏ` over `k = 1 ..= octaves`
+pub(super) fn fbm_scale_factor(octaves: usize) -> f32 {
+    let denom: f64 = (1..=octaves).map(|k| 0.5f64.powi(k as i32)).sum();
+    (1.0 / denom) as f32
+}
+
 pub fn gen_fbm_gpu(
     gpu: &GpuContext,
     seed: u64,
@@ -60,7 +77,6 @@ pub(crate) fn gen_fbm_gpu_banded(
     progress: &mut Progress,
 ) -> Result<(), GpuError> {
     let octaves = (conf.octaves as usize).clamp(1, MAX_OCTAVES);
-    let denom: f64 = (1..=octaves).map(|k| 0.5f64.powi(k as i32)).sum();
     let params = FbmParams {
         xcoef: conf.mulx / 400.0,
         ycoef: conf.muly / 400.0,
@@ -68,7 +84,7 @@ pub(crate) fn gen_fbm_gpu_banded(
         addy: conf.addy,
         delta: conf.delta,
         scale: conf.scale,
-        scale_factor: (1.0 / denom) as f32,
+        scale_factor: fbm_scale_factor(octaves),
         width_f: size.0 as f32,
         height_f: size.1 as f32,
         octaves: octaves as u32,

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0] - 2026-09-20
+
+### Added
+
+- Ridged generator: ridged multifractal noise with sharp crests, the mountain counterpart of Fbm; fold bends the ranges.
+
+## [0.5.2] - 2026-09-20
+
+### fixed
+
+- z fighting mechanism for shores was in the final export. It's now only for 3D preview
+
 ## [0.5.1] - 2026-09-20
 
 ### Added

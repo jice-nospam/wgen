@@ -240,6 +240,24 @@ mod tests {
                         .unwrap()
                 });
             }
+            let mut h = vec![0.0; side * side];
+            time(&format!("ridged cpu {side}"), || {
+                gen_ridged(1, size, &mut h, &RidgedConf::default(), &mut p)
+            });
+            if let Some(gpu) = crate::gpu::test_context() {
+                let mut h = vec![0.0; side * side];
+                time(&format!("ridged gpu {side}"), || {
+                    crate::gpu::ridged::gen_ridged_gpu(
+                        &gpu,
+                        1,
+                        size,
+                        &mut h,
+                        &RidgedConf::default(),
+                        &mut p,
+                    )
+                    .unwrap()
+                });
+            }
             normalize(&mut base, 0.0, 1.0);
             let mut h = vec![0.0; side * side];
             time(&format!("hills {side}"), || {

@@ -17,6 +17,7 @@ use crate::log;
 pub mod fbm;
 pub mod fluvial_erosion;
 pub mod ping_pong;
+pub mod ridged;
 pub mod thermal_erosion;
 
 /// cells per band the twins pass to `run_per_pixel`: 16M cells = 64 MiB of `f32`

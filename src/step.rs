@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::generators::{
     gen_fbm, gen_fluvial_erosion, gen_hills, gen_island, gen_landmass, gen_mid_point, gen_mudslide,
-    gen_normalize, gen_thermal_erosion, gen_water_erosion, render_fbm, render_fluvial_erosion,
-    render_hills, render_island, render_landmass, render_mid_point, render_mudslide,
-    render_thermal_erosion, render_water_erosion, FbmConf, FluvialErosionConf, HillsConf,
-    IslandConf, LandMassConf, MidPointConf, MudSlideConf, NormalizeConf, Progress,
-    ThermalErosionConf, WaterErosionConf,
+    gen_normalize, gen_ridged, gen_thermal_erosion, gen_water_erosion, render_fbm,
+    render_fluvial_erosion, render_hills, render_island, render_landmass, render_mid_point,
+    render_mudslide, render_ridged, render_thermal_erosion, render_water_erosion, FbmConf,
+    FluvialErosionConf, HillsConf, IslandConf, LandMassConf, MidPointConf, MudSlideConf,
+    NormalizeConf, Progress, RidgedConf, ThermalErosionConf, WaterErosionConf,
 };
 use crate::gpu::{
-    fbm::gen_fbm_gpu, fluvial_erosion::gen_fluvial_erosion_gpu,
+    fbm::gen_fbm_gpu, fluvial_erosion::gen_fluvial_erosion_gpu, ridged::gen_ridged_gpu,
     thermal_erosion::gen_thermal_erosion_gpu, Backend,
 };
 
@@ -28,17 +28,19 @@ pub enum StepType {
     FluvialErosion(FluvialErosionConf),
     Island(IslandConf),
     MidPoint(MidPointConf),
+    Ridged(RidgedConf),
 }
 
 impl StepType {
     /// the generators the dropdown offers, with their default configuration, in dropdown
     /// order. `MudSlide` and `WaterErosion` are legacy: they only exist in old `.wgen` files
     /// and still load and run, but a new step cannot be one
-    pub fn all() -> [StepType; 8] {
+    pub fn all() -> [StepType; 9] {
         [
             StepType::Hills(HillsConf::default()),
             StepType::Fbm(FbmConf::default()),
             StepType::MidPoint(MidPointConf::default()),
+            StepType::Ridged(RidgedConf::default()),
             StepType::Normalize(NormalizeConf::default()),
             StepType::LandMass(LandMassConf::default()),
             StepType::ThermalErosion(ThermalErosionConf::default()),
@@ -52,6 +54,7 @@ impl StepType {
             StepType::Hills(_) => "Hills",
             StepType::Fbm(_) => "Fbm",
             StepType::MidPoint(_) => "MidPoint",
+            StepType::Ridged(_) => "Ridged",
             StepType::Normalize(_) => "Normalize",
             StepType::LandMass(_) => "LandMass",
             StepType::MudSlide(_) => "MudSlide",
@@ -67,6 +70,9 @@ impl StepType {
             StepType::Hills(_) => "Add round hills to generate a smooth land",
             StepType::Fbm(_) => "Add fractional brownian motion to generate a mountainous land",
             StepType::MidPoint(_) => "Use mid point displacement to generate a mountainous land",
+            StepType::Ridged(_) => {
+                "Add ridged multifractal noise: sharp crests and alpine peaks, optionally folded"
+            }
             StepType::Normalize(_) => "Scale the terrain back to the 0.0-1.0 range",
             StepType::LandMass(_) => {
                 "Scale the terrain so that only a proportion of land is above water level"
@@ -88,6 +94,7 @@ impl StepType {
             StepType::Hills(conf) => render_hills(ui, conf),
             StepType::Fbm(conf) => render_fbm(ui, conf),
             StepType::MidPoint(conf) => render_mid_point(ui, conf),
+            StepType::Ridged(conf) => render_ridged(ui, conf),
             StepType::Normalize(_) => (),
             StepType::LandMass(conf) => render_landmass(ui, conf),
             StepType::MudSlide(conf) => render_mudslide(ui, conf),
@@ -121,6 +128,15 @@ impl StepType {
                 None => gen_fbm(seed, size, h, conf, progress),
             },
             StepType::MidPoint(conf) => gen_mid_point(seed, size, h, conf, progress),
+            StepType::Ridged(conf) => match backend.gpu() {
+                Some(gpu) => {
+                    if let Err(e) = gen_ridged_gpu(gpu, seed, size, h, conf, progress) {
+                        crate::log(&format!("gpu=>ridged fell back to the CPU: {}", e.0));
+                        gen_ridged(seed, size, h, conf, progress)
+                    }
+                }
+                None => gen_ridged(seed, size, h, conf, progress),
+            },
             StepType::Normalize(conf) => gen_normalize(h, conf),
             StepType::LandMass(conf) => gen_landmass(size, h, conf, progress),
             StepType::MudSlide(conf) => gen_mudslide(size, h, conf, progress),
@@ -301,6 +317,7 @@ mod tests {
                 "Hills",
                 "Fbm",
                 "MidPoint",
+                "Ridged",
                 "Normalize",
                 "LandMass",
                 "ThermalErosion",
@@ -320,8 +337,14 @@ mod tests {
     #[test]
     fn legacy_generators_still_load() {
         let old = r#"MudSlide((iterations:5.0,max_erosion_alt:0.9,strength:0.4,water_level:0.12))"#;
-        assert!(matches!(ron::from_str::<StepType>(old), Ok(StepType::MudSlide(_))));
+        assert!(matches!(
+            ron::from_str::<StepType>(old),
+            Ok(StepType::MudSlide(_))
+        ));
         let old = ron::to_string(&StepType::WaterErosion(WaterErosionConf::default())).unwrap();
-        assert!(matches!(ron::from_str::<StepType>(&old), Ok(StepType::WaterErosion(_))));
+        assert!(matches!(
+            ron::from_str::<StepType>(&old),
+            Ok(StepType::WaterErosion(_))
+        ));
     }
 }

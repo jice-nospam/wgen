@@ -8,9 +8,11 @@ mod island;
 mod landmass;
 mod mid_point;
 mod mudslide;
+pub mod noise_field;
 mod normalize;
 mod par_rows;
 mod resample;
+mod ridged;
 mod thermal_erosion;
 mod water_erosion;
 
@@ -28,6 +30,10 @@ pub use mudslide::{gen_mudslide, render_mudslide, MudSlideConf};
 pub use normalize::{gen_normalize, NormalizeConf};
 pub use par_rows::par_rows;
 pub use resample::{add_upsampled, bilinear, downsample, work_size};
+pub use ridged::{gen_ridged, render_ridged, RidgedConf};
+pub(crate) use ridged::{
+    FOLD_OCTAVES, FOLD_STREAM_A, FOLD_STREAM_B, MAX_OCTAVES as RIDGED_MAX_OCTAVES,
+};
 pub use thermal_erosion::{gen_thermal_erosion, render_thermal_erosion, ThermalErosionConf};
 pub(crate) use thermal_erosion::{thermal_plan, ThermalParams};
 pub use water_erosion::{gen_water_erosion, render_water_erosion, WaterErosionConf};

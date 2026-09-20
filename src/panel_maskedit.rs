@@ -3,7 +3,7 @@ use egui::{
     TextureOptions,
 };
 
-use crate::{panel_2dview::Panel2dAction, MASK_SIZE};
+use crate::{mask::feather_mask, panel_2dview::Panel2dAction, MASK_SIZE};
 
 /// maximum size of the brush relative to the canvas
 const MAX_BRUSH_SIZE: f32 = 0.25;
@@ -24,6 +24,10 @@ pub struct PanelMaskEdit {
     image_size: usize,
     /// the mask as a MASK_SIZE x MASK_SIZE f32 matrix
     mask: Option<Vec<f32>>,
+    /// the step's edge feather, 0.0..=1.0, committed with the mask
+    feather: f32,
+    /// the feather slider moved and the new value is not handed over yet
+    feather_pending: bool,
     /// the brush parameters
     conf: BrushConfig,
     /// GPU texture of `mask`, a MASK_SIZE x MASK_SIZE grayscale image
@@ -43,6 +47,8 @@ impl PanelMaskEdit {
         PanelMaskEdit {
             image_size,
             mask: None,
+            feather: 0.0,
+            feather_pending: false,
             conf: BrushConfig {
                 value: 0.5,
                 size: 0.5,
@@ -56,11 +62,13 @@ impl PanelMaskEdit {
             heightmap_transparency: 0.5,
         }
     }
-    pub fn display_mask(&mut self, image_size: usize, mask: Vec<f32>) {
+    pub fn display_mask(&mut self, image_size: usize, mask: Vec<f32>, feather: f32) {
         self.image_size = image_size;
         self.mask_dirty = true;
         self.is_painting = false;
         self.mask = Some(mask);
+        self.feather = feather;
+        self.feather_pending = false;
     }
     /// the canvas size changed (the heightmap texture itself belongs to the 2D panel)
     pub fn heightmap_changed(&mut self, image_size: usize) {
@@ -80,7 +88,7 @@ impl PanelMaskEdit {
                 self.prev_frame_time = -1.0;
                 if was_painting {
                     // the brush stroke ended : hand the mask over to its step
-                    action = self.mask.clone().map(Panel2dAction::MaskCommitted);
+                    action = self.commit();
                 }
             }
             ui.label("mouse buttons : left increase, right decrease, middle set brush value");
@@ -111,6 +119,24 @@ impl PanelMaskEdit {
                 );
             });
             ui.horizontal(|ui| {
+                let response = ui
+                    .add(egui::Slider::new(&mut self.feather, 0.0..=1.0).text("feather"))
+                    .on_hover_text(
+                        "Softens the mask edges: white areas darken near black ones, \
+                         over up to a quarter of the map at 1.0",
+                    );
+                if response.changed() {
+                    self.feather_pending = true;
+                    // the texture is re-uploaded by the next frame's canvas
+                    self.mask_dirty = true;
+                    ui.ctx().request_repaint();
+                }
+                // one recompute per gesture : commit once the slider is released
+                if self.feather_pending && !response.dragged() {
+                    action = self.commit();
+                }
+            });
+            ui.horizontal(|ui| {
                 ui.label("heightmap opacity");
                 ui.add(
                     egui::DragValue::new(&mut self.heightmap_transparency)
@@ -124,6 +150,8 @@ impl PanelMaskEdit {
                 .clicked()
             {
                 action = Some(Panel2dAction::MaskDelete);
+                self.feather = 0.0;
+                self.feather_pending = false;
                 if let Some(ref mut mask) = self.mask {
                     mask.fill(1.0);
                     self.mask_dirty = true;
@@ -131,6 +159,23 @@ impl PanelMaskEdit {
             }
         });
         action
+    }
+    /// hands the mask and its feather over to the step being edited
+    fn commit(&mut self) -> Option<Panel2dAction> {
+        self.feather_pending = false;
+        self.mask.clone().map(|mask| Panel2dAction::MaskCommitted {
+            mask,
+            feather: self.feather,
+        })
+    }
+    /// the mask as the editor shows it: raw while a stroke is painted, feathered between strokes
+    fn displayed_mask(&self) -> Option<Vec<f32>> {
+        let mask = self.mask.as_ref()?;
+        Some(if self.is_painting {
+            mask.clone()
+        } else {
+            feather_mask(mask, self.feather)
+        })
     }
     /// allocates the canvas, applies the brush under the pointer, then paints mask, heightmap and brush
     fn paint_canvas(&mut self, ui: &mut egui::Ui, heightmap_id: TextureId) {
@@ -165,6 +210,7 @@ impl PanelMaskEdit {
         };
         // pointer position in canvas from 0.0,0.0 (top left) to 1.0,1.0 (bottom right)
         let canvas_pos = mouse_pos.map(|pos| from_screen * pos);
+        let was_painting = self.is_painting;
         if let Some(canvas_pos) = canvas_pos {
             self.is_painting = (lbutton || rbutton || mbutton) && in_canvas(canvas_pos);
             if self.is_painting && time > 0.0 {
@@ -174,6 +220,10 @@ impl PanelMaskEdit {
         } else {
             // the pointer left the window : the stroke is over
             self.is_painting = false;
+        }
+        if self.is_painting != was_painting {
+            // the texture switches between the raw and the feathered mask
+            self.mask_dirty = true;
         }
         self.upload_mask(ui.ctx());
         let painter = ui.painter_at(rect);
@@ -193,13 +243,13 @@ impl PanelMaskEdit {
             );
         }
     }
-    /// uploads `mask` to `mask_tex` when it changed since the last frame
+    /// uploads the displayed mask to `mask_tex` when it changed since the last frame
     fn upload_mask(&mut self, ctx: &egui::Context) {
         if !self.mask_dirty {
             return;
         }
-        if let Some(mask) = &self.mask {
-            let img = mask_image(mask);
+        if let Some(mask) = self.displayed_mask() {
+            let img = mask_image(&mask);
             match &mut self.mask_tex {
                 Some(handle) => handle.set(img, TextureOptions::LINEAR),
                 None => self.mask_tex = Some(ctx.load_texture("mask", img, TextureOptions::LINEAR)),
@@ -291,7 +341,7 @@ mod tests {
     #[test]
     fn update_mask_darkens_centre_only() {
         let mut panel = PanelMaskEdit::new(256);
-        panel.display_mask(256, vec![1.0; MASK_SIZE * MASK_SIZE]);
+        panel.display_mask(256, vec![1.0; MASK_SIZE * MASK_SIZE], 0.0);
         let conf = BrushConfig {
             value: 0.5,
             size: 0.5,
@@ -303,5 +353,15 @@ mod tests {
         let centre = MASK_SIZE / 2;
         assert!(mask[centre + centre * MASK_SIZE] < 1.0);
         assert_eq!(mask[0], 1.0);
+    }
+
+    #[test]
+    fn displayed_mask_is_feathered_between_strokes() {
+        let mut panel = PanelMaskEdit::new(256);
+        panel.display_mask(256, crate::mask::tests::half_black_mask(), 0.5);
+        let i = 32 + 10 * MASK_SIZE;
+        assert!((panel.displayed_mask().unwrap()[i] - 0.125).abs() < 1e-6);
+        panel.is_painting = true;
+        assert_eq!(panel.displayed_mask().unwrap()[i], 1.0);
     }
 }

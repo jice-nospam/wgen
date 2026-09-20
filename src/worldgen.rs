@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use crate::generators::{get_min_max, Progress};
 use crate::gpu::{Backend, GpuContext};
+use crate::mask::feather_mask;
 pub use crate::step::{Step, StepType};
 use crate::{log, panic_message, ThreadMessage, Waker, MASK_SIZE};
 
@@ -309,14 +310,15 @@ impl WorldGenerator {
     }
 
     /// runs one step's generator on `h` (already holding the previous step's output), then blends
-    /// the result with `prev` through the step's mask, if any
+    /// the result with `prev` through the step's mask, feathered, if any
     fn run_step(&self, step: &Step, h: &mut [f32], prev: Option<&[f32]>, progress: &mut Progress) {
         let (seed, size) = (self.seed, self.world_size);
         if !step.disabled {
             step.typ.run(seed, size, h, progress, &self.backend);
         }
         if let Some(ref mask) = step.mask {
-            apply_mask(size, mask, prev, h);
+            let mask = feather_mask(mask, step.mask_feather);
+            apply_mask(size, &mask, prev, h);
         }
     }
 
@@ -382,6 +384,7 @@ mod tests {
             Step {
                 typ: StepType::Hills(HillsConf::default()),
                 mask: Some(mask.clone()),
+                mask_feather: 0.5,
                 ..Default::default()
             },
             Step {
@@ -477,6 +480,31 @@ mod tests {
         inv.set(2, 0);
         assert!(!progress.report(0.5));
         assert!(!progress.report(1.0));
+    }
+
+    #[test]
+    fn run_step_feathers_the_mask() {
+        // one map pixel per mask cell, so apply_mask samples the mask exactly
+        let size = (MASK_SIZE, MASK_SIZE);
+        let generator = WorldGenerator::new(1, size);
+        let prev = vec![0.0; MASK_SIZE * MASK_SIZE];
+        let run = |feather: f32| {
+            let step = Step {
+                disabled: true,
+                mask: Some(crate::mask::tests::half_black_mask()),
+                mask_feather: feather,
+                typ: StepType::Normalize(NormalizeConf::default()),
+            };
+            let mut h = vec![1.0; MASK_SIZE * MASK_SIZE];
+            generator.run_step(&step, &mut h, Some(&prev), &mut Progress::headless());
+            h
+        };
+        let row = 10 * MASK_SIZE;
+        let hard = run(0.0);
+        assert_eq!(hard[32 + row], 1.0);
+        let soft = run(0.5);
+        assert!((soft[32 + row] - 0.125).abs() < 1e-6, "{}", soft[32 + row]);
+        assert!((soft[39 + row] - 1.0).abs() < 1e-6, "{}", soft[39 + row]);
     }
 
     #[test]

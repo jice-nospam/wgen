@@ -8,6 +8,7 @@ mod exporter;
 mod fps;
 mod generators;
 mod gpu;
+mod mask;
 mod panel_2dview;
 mod panel_3dview;
 mod panel_export;
@@ -52,7 +53,7 @@ use water_material::WaterMaterialPlugin;
 use worldgen::{generator_thread, ExportMap, Invalidation, WorldGenCommand, WorldGenerator};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const MASK_SIZE: usize = 64;
+pub use mask::MASK_SIZE;
 /// polling period of the UI while a worker thread runs
 const BUSY_REFRESH: Duration = Duration::from_millis(100);
 
@@ -473,9 +474,13 @@ impl MyApp {
                             .send(WorldGenCommand::GetStepMap(self.generation, step))
                             .unwrap();
                     }
-                    Some(GeneratorAction::DisplayMask(mask)) => {
-                        self.panel_2d
-                            .display_mask(self.image_size, self.preview_size as u32, mask);
+                    Some(GeneratorAction::DisplayMask { mask, feather }) => {
+                        self.panel_2d.display_mask(
+                            self.image_size,
+                            self.preview_size as u32,
+                            mask,
+                            feather,
+                        );
                     }
                     None => (),
                 }
@@ -508,8 +513,8 @@ impl MyApp {
                                 self.gen_panel.exit_mask_mode();
                                 self.resize(new_size);
                             }
-                            Some(Panel2dAction::MaskCommitted(mask)) => {
-                                if let Some(from) = self.gen_panel.commit_mask(mask) {
+                            Some(Panel2dAction::MaskCommitted { mask, feather }) => {
+                                if let Some(from) = self.gen_panel.commit_mask(mask, feather) {
                                     self.regen(None, from);
                                 }
                             }

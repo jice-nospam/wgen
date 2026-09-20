@@ -13,8 +13,9 @@ pub enum GeneratorAction {
     Regen { delete: Option<usize>, from: usize },
     /// display a specific step heightmap in the 2D preview
     DisplayLayer(usize),
-    /// edit this mask in the 2D preview (a full mask when the step has none yet)
-    DisplayMask(Vec<f32>),
+    /// edit this mask and its feather in the 2D preview (a full mask, feather 0.0, when the
+    /// step has none yet)
+    DisplayMask { mask: Vec<f32>, feather: f32 },
     /// change the RNG seed
     SetSeed(u64),
     /// remove all steps
@@ -99,18 +100,21 @@ impl PanelGenerator {
     pub fn exit_mask_mode(&mut self) {
         self.mask_step = None;
     }
-    /// stores a painted mask on the step being edited; returns that step's index, to recompute from
-    pub fn commit_mask(&mut self, mask: Vec<f32>) -> Option<usize> {
-        self.set_mask(Some(mask))
+    /// stores a painted mask and its feather on the step being edited; returns that step's
+    /// index, to recompute from
+    pub fn commit_mask(&mut self, mask: Vec<f32>, feather: f32) -> Option<usize> {
+        self.set_mask(Some(mask), feather)
     }
     /// removes the mask of the step being edited; returns that step's index, to recompute from
     pub fn delete_mask(&mut self) -> Option<usize> {
-        self.set_mask(None)
+        self.set_mask(None, 0.0)
     }
-    fn set_mask(&mut self, mask: Option<Vec<f32>>) -> Option<usize> {
+    /// a step without a mask always carries a 0.0 feather
+    fn set_mask(&mut self, mask: Option<Vec<f32>>, feather: f32) -> Option<usize> {
         let i = self.mask_step?;
         let step = self.steps.get_mut(i)?;
         step.mask = mask;
+        step.mask_feather = feather;
         Some(i)
     }
     pub fn load_project(&mut self, project: Project) {
@@ -319,11 +323,13 @@ impl PanelGenerator {
                 || previous_mask_step != self.mask_step)
         {
             action = Some(match self.mask_step.and_then(|i| self.steps.get(i)) {
-                Some(step) => GeneratorAction::DisplayMask(
-                    step.mask
+                Some(step) => GeneratorAction::DisplayMask {
+                    mask: step
+                        .mask
                         .clone()
                         .unwrap_or_else(|| vec![1.0; MASK_SIZE * MASK_SIZE]),
-                ),
+                    feather: step.mask_feather,
+                },
                 None => GeneratorAction::DisplayLayer(self.selected_step),
             });
         }

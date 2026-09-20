@@ -5,8 +5,9 @@ use crate::{fps::FpsCounter, panel_maskedit::PanelMaskEdit, worldgen::ExportMap}
 pub enum Panel2dAction {
     /// the preview size has changed : terrain and 3d view must be recomputed
     ResizePreview(usize),
-    /// a brush stroke ended : this is the mask being edited, to store on its step
-    MaskCommitted(Vec<f32>),
+    /// a brush stroke ended or the feather slider was released : the mask being edited and its
+    /// feather, to store on its step
+    MaskCommitted { mask: Vec<f32>, feather: f32 },
     /// the mask being edited was cleared : remove it from its step
     MaskDelete,
 }
@@ -60,10 +61,16 @@ impl Panel2dView {
         panel
     }
     /// shows the mask editor on top of the current heightmap
-    pub fn display_mask(&mut self, image_size: usize, preview_size: u32, mask: Vec<f32>) {
+    pub fn display_mask(
+        &mut self,
+        image_size: usize,
+        preview_size: u32,
+        mask: Vec<f32>,
+        feather: f32,
+    ) {
         self.image_size = image_size;
         self.preview_size = preview_size as usize;
-        self.mask_editor.display_mask(image_size, mask);
+        self.mask_editor.display_mask(image_size, mask, feather);
         self.mask_mode = true;
     }
     /// shows the heightmap alone

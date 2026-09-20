@@ -154,6 +154,10 @@ pub struct Step {
     pub disabled: bool,
     /// this step mask
     pub mask: Option<Vec<f32>>,
+    /// how far the mask's edges are softened, 0.0 (hard edge) to 1.0 (a ramp over a quarter
+    /// of the map side); `mask::feather_mask` applies it
+    #[serde(default)]
+    pub mask_feather: f32,
     /// step type with its configuration
     pub typ: StepType,
 }
@@ -163,6 +167,7 @@ impl Default for Step {
         Self {
             disabled: false,
             mask: None,
+            mask_feather: 0.0,
             typ: StepType::Normalize(NormalizeConf::default()),
         }
     }

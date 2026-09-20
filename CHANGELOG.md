@@ -1,6 +1,16 @@
 # Changelog
 
-## [0.5.0] - Unreleased
+## [0.5.1] - 2026-09-20
+
+### Added
+
+- added feather parameter to mask editor to smooth the effect of the mask
+
+### Changed
+
+### Removed
+
+## [0.5.0] - 2026-09-20
 
 ### Added
 

@@ -49,6 +49,8 @@ You can add a mask to a generator step by clicking the square next to the genera
 You can then edit the mask using a painting brush. The generator effect will be scaled depending on the mask color.
 The terrain is recomputed with the new mask as soon as you leave the mask editor (by clicking a step name, `Refresh`, or any other change to the step list).
 ![Masks UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_masks.jpg)
+Use the feather slider to soften the mask effect to avoid unnatural discontinuities :
+![Masks UI 2](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_masks2.jpg)
 
 ## Terrain preview
 You have a 2D preview displaying the heightmap (at current selected step in the generators UI). You can change the preview heightmap size from 64x64 for very fast computation to 512x512 for a more precise visualization. If `live preview` button is checked, the 2D preview will be updated at every step during computation.

@@ -113,6 +113,7 @@ mod tests {
         assert_eq!(project.seed, 0xdeadbeef);
         assert_eq!(project.steps.len(), 2);
         assert!(project.steps[1].disabled);
+        assert_eq!(project.steps[0].mask_feather, 0.0);
     }
 
     #[test]
@@ -132,6 +133,7 @@ mod tests {
                 Step {
                     typ: StepType::Hills(HillsConf::default()),
                     mask: Some(mask),
+                    mask_feather: 0.3,
                     ..Default::default()
                 },
                 Step {
@@ -146,6 +148,10 @@ mod tests {
         let mask_lines: Vec<&str> = text.lines().filter(|l| l.contains("mask: Some(")).collect();
         assert_eq!(mask_lines.len(), 1);
         assert!(mask_lines[0].contains("0.25"));
+        // the feather sits on its own line right after the mask, one field per line
+        let lines: Vec<&str> = text.lines().collect();
+        let mask_at = lines.iter().position(|l| l.contains("mask: Some(")).unwrap();
+        assert_eq!(lines[mask_at + 1].trim(), "mask_feather: 0.3,");
         assert!(text.lines().count() < 40, "{}", text);
         assert_eq!(Project::from_ron(&text).unwrap(), project);
     }

@@ -4,24 +4,19 @@
 
 ### Added
 
-- 3D preview: physically based sky (`Show skybox`) with sun disk, aerial perspective and sky-lit shadows; `Sun elevation °` and `Exposure EV` controls
-- Fbm runs on the GPU
-- ThermalErosion runs on the GPU
-- FluvialErosion runs on the GPU
 - command-line export: `wgen --export <project.wgen> --out <file.png|file.exr> [--size N|WxH] [--cpu]` generates a project without the editor and prints the time of every step
-- the 3D preview renders only for a few frames after something changed (terrain, camera, sun, water, sky, panel size); an untouched preview costs no GPU time
 
 ### Changed
 
+- replaced eframe + three-d with bevy + bevy_egui
+- improved 3D preview
 - MudSlide and WaterErosion are no longer offered in the generator dropdown (ThermalErosion and FluvialErosion supersede them); existing projects that use them still load and run
 - auto 3D preview refresh during mask editing
-- mask editor drawn with egui only; the brush is a red outline (extent + falloff) instead of a filled disc
-- replaced eframe + three-d with Bevy 0.19 + bevy_egui (egui 0.36)
-- 3D preview rendered by Bevy
+- Fbm, ThermalErosion and FluvialErosion now run on the GPU when available
 
 ### Removed
 
-- the ±3-unit vertex step the 3D preview faked at the shoreline; the water plane now cuts the terrain on a clean line
+- the 3-unit vertex step the 3D preview faked at the shoreline; the water plane now cuts the terrain on a clean line
 
 ### Fixed
 

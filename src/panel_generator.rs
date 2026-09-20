@@ -212,6 +212,8 @@ impl PanelGenerator {
         let mut action = None;
         let len = self.steps.len();
         let dragging = ui.ctx().dragged_id().is_some() && self.hovered;
+        // the dragged id is already cleared on the release pass: the drop is reported here
+        let dropped = ui.ctx().drag_stopped_id();
         let response = ui
             .scope(|ui| {
                 for (i, step) in self.steps.iter_mut().enumerate() {
@@ -219,6 +221,9 @@ impl PanelGenerator {
                         ui.separator();
                     }
                     let item_id = Id::new("wgen").with(i);
+                    if dropped == Some(item_id) {
+                        *to_move = Some(i);
+                    }
                     if let Some(dy) = render_step_gui(ui, item_id, |ui| {
                         ui.horizontal(|ui| {
                             let response = ui
@@ -274,14 +279,14 @@ impl PanelGenerator {
                             }
                         });
                     }) {
-                        *to_move = Some(i);
                         let dest = i as i32 + (dy / 20.0) as i32;
                         self.move_to_pos = dest.clamp(0, len as i32) as usize;
                     }
                 }
             })
             .response;
-        self.hovered = response.hovered();
+        // `hovered()` is false for everything but the dragged widget during a drag
+        self.hovered = response.contains_pointer();
         action
     }
     /// render the configuration UI for currently selected step

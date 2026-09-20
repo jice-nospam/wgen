@@ -2,7 +2,7 @@ use egui::PointerButton;
 
 const PANEL3D_SIZE: f32 = 256.0;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Panel3dViewConf {
     /// camera x and y orbit angles
     pub orbit: [f32; 2],

@@ -70,6 +70,29 @@ pub struct SceneTarget {
     pub texture: egui::TextureId,
 }
 
+/// frames the scene camera keeps rendering after a change, so that effects which settle over
+/// several frames (the sky's environment map, shadow cascades) are complete in the last one
+const SETTLE_FRAMES: u32 = 4;
+
+/// whether the scene camera has anything new to render: the systems that change what it
+/// would show (`update_terrain`, `apply_view_conf`, `apply_sky`, `apply_target`, the material
+/// systems) call `mark`, and `gate_scene_camera` activates the camera for the next
+/// `SETTLE_FRAMES` frames only. A static preview therefore costs no GPU time: egui keeps
+/// painting the last image the camera rendered
+#[derive(Resource, Default)]
+pub struct SceneDirty {
+    /// frames the camera still has to render
+    frames_left: u32,
+    /// the 3D square is on screen with a non-empty size (`apply_target`)
+    visible: bool,
+}
+
+impl SceneDirty {
+    pub fn mark(&mut self) {
+        self.frames_left = SETTLE_FRAMES;
+    }
+}
+
 /// what the UI decided for the 3D square this frame: its size on screen and how the scene
 /// is viewed; written by the UI, read by `apply_view_conf` and `apply_target`
 #[derive(Resource, Default)]
@@ -102,7 +125,10 @@ pub fn spawn_cameras(
         None,
     ));
     let texture = egui_textures.add_image(EguiTextureHandle::Strong(image.clone()));
-    commands.insert_resource(SceneTarget { image: image.clone(), texture });
+    commands.insert_resource(SceneTarget {
+        image: image.clone(),
+        texture,
+    });
     commands.spawn((
         PrimaryEguiContext,
         Camera2d,
@@ -159,6 +185,7 @@ pub fn apply_sky(
     vp: Res<PreviewViewport>,
     mut commands: Commands,
     mut ambient: ResMut<GlobalAmbientLight>,
+    mut dirty: ResMut<SceneDirty>,
     cam: Single<(Entity, Option<&AtmosphereSettings>), With<SceneCamera>>,
 ) {
     let (entity, settings) = *cam;
@@ -169,12 +196,14 @@ pub fn apply_sky(
                 AtmosphereEnvironmentMapLight::default(),
             ));
             ambient.brightness = 0.0;
+            dirty.mark();
         }
         (false, true) => {
             commands
                 .entity(entity)
                 .remove::<(AtmosphereSettings, AtmosphereEnvironmentMapLight)>();
             ambient.brightness = AMBIENT_NO_SKY;
+            dirty.mark();
         }
         _ => {}
     }
@@ -395,7 +424,12 @@ pub fn skirt_mesh(size: (usize, usize), h: &[f32]) -> Mesh {
         let along = Vec3::new(x1 - x0, 0.0, y1 - y0);
         let flip = along.cross(Vec3::NEG_Y).dot(outward) < 0.0;
         for i in 0..edge.len() as u32 - 1 {
-            let (t0, f0, t1, f1) = (base + 2 * i, base + 2 * i + 1, base + 2 * i + 2, base + 2 * i + 3);
+            let (t0, f0, t1, f1) = (
+                base + 2 * i,
+                base + 2 * i + 1,
+                base + 2 * i + 2,
+                base + 2 * i + 3,
+            );
             let quad = if flip {
                 [t0, f1, t1, t0, f0, f1]
             } else {
@@ -439,6 +473,7 @@ pub fn update_terrain(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut water_materials: ResMut<Assets<WaterMaterial>>,
+    mut dirty: ResMut<SceneDirty>,
     terrain: Single<(Entity, Option<&mut Mesh3d>), (With<Terrain>, Without<Skirt>)>,
     skirt: Single<(Entity, Option<&mut Mesh3d>), (With<Skirt>, Without<Terrain>)>,
     water: Single<&MeshMaterial3d<WaterMaterial>, With<Water>>,
@@ -453,24 +488,31 @@ pub fn update_terrain(
             commands.entity(entity).insert(Mesh3d(handle));
         }
     };
-    set_mesh(terrain.into_inner(), meshes.add(terrain_mesh(size, hmap.borrow())));
-    set_mesh(skirt.into_inner(), meshes.add(skirt_mesh(size, hmap.borrow())));
+    set_mesh(
+        terrain.into_inner(),
+        meshes.add(terrain_mesh(size, hmap.borrow())),
+    );
+    set_mesh(
+        skirt.into_inner(),
+        meshes.add(skirt_mesh(size, hmap.borrow())),
+    );
     if let Some(mut material) = water_materials.get_mut(&water.0) {
         material.extension.heightmap = images.add(heightmap_image(size, hmap.borrow()));
     }
+    dirty.mark();
 }
 
 /// applies the panel's settings to the scene: camera orbit / pan / zoom and exposure, terrain
-/// rotation and height scale, sun direction, water height and visibility.
+/// rotation and height scale, sun direction, water height and visibility; a conf that differs
+/// from the last applied one marks the scene dirty.
 /// Component writes only: the mesh is never rebuilt for a settings change. The `Without`
 /// filters make the four `&mut Transform` queries disjoint, which Bevy checks at startup
 #[allow(clippy::type_complexity)]
 pub fn apply_view_conf(
     vp: Res<PreviewViewport>,
-    cam: Single<
-        (&mut Transform, &mut Projection, &mut Camera, &mut Exposure),
-        With<SceneCamera>,
-    >,
+    mut dirty: ResMut<SceneDirty>,
+    mut last: Local<Option<Panel3dViewConf>>,
+    cam: Single<(&mut Transform, &mut Projection, &mut Camera, &mut Exposure), With<SceneCamera>>,
     terrain: Option<Single<&mut Transform, (With<Terrain>, Without<SceneCamera>)>>,
     sun: Single<&mut Transform, (With<Sun>, Without<SceneCamera>, Without<Terrain>)>,
     water: Single<
@@ -484,6 +526,10 @@ pub fn apply_view_conf(
     >,
 ) {
     let conf = &vp.conf;
+    if last.as_ref() != Some(conf) {
+        *last = Some(*conf);
+        dirty.mark();
+    }
     let (mut cam_transform, mut projection, mut camera, mut exposure) = cam.into_inner();
     *cam_transform = camera_transform(conf);
     let want = perspective(conf);
@@ -556,19 +602,23 @@ fn perspective(conf: &Panel3dViewConf) -> PerspectiveProjection {
 }
 
 /// sizes the scene camera's image to the preview square, in physical pixels: the asset is
-/// resized in place on a change (same handle, so the egui texture id stays valid); the camera
-/// is inactive while the square is hidden or zero-sized, so the target is never empty
+/// resized in place on a change (same handle, so the egui texture id stays valid) and the
+/// scene marked dirty; records in `SceneDirty` whether the square is on screen at all, so
+/// that `gate_scene_camera` never renders into an empty target
 pub fn apply_target(
     vp: Res<PreviewViewport>,
     target: Res<SceneTarget>,
     mut images: ResMut<Assets<Image>>,
-    mut cam: Single<&mut Camera, With<SceneCamera>>,
+    mut dirty: ResMut<SceneDirty>,
 ) {
     let Some(size) = target_size(vp.rect, vp.pixels_per_point) else {
-        cam.is_active = false;
+        dirty.visible = false;
         return;
     };
-    cam.is_active = true;
+    if !dirty.visible {
+        dirty.visible = true;
+        dirty.mark();
+    }
     let Some(image) = images.get(&target.image) else {
         return;
     };
@@ -581,6 +631,22 @@ pub fn apply_target(
                 depth_or_array_layers: 1,
             });
         }
+        dirty.mark();
+    }
+}
+
+/// the last system of the scene chain: the camera renders this frame only while the square is
+/// on screen and a change was marked within the last `SETTLE_FRAMES` frames
+pub fn gate_scene_camera(
+    mut dirty: ResMut<SceneDirty>,
+    mut cam: Single<&mut Camera, With<SceneCamera>>,
+) {
+    let active = dirty.visible && dirty.frames_left > 0;
+    if dirty.frames_left > 0 {
+        dirty.frames_left -= 1;
+    }
+    if cam.is_active != active {
+        cam.is_active = active;
     }
 }
 
@@ -677,7 +743,9 @@ mod tests {
     fn skirt_mesh_walls_face_outward() {
         let size = (4, 3);
         // the minimum sits inside, so no wall triangle is degenerate
-        let h: Vec<f32> = (0..12).map(|v| if v == 5 { 0.0 } else { v as f32 + 1.0 }).collect();
+        let h: Vec<f32> = (0..12)
+            .map(|v| if v == 5 { 0.0 } else { v as f32 + 1.0 })
+            .collect();
         let mesh = skirt_mesh(size, &h);
         let pos = mesh
             .attribute(Mesh::ATTRIBUTE_POSITION)
@@ -722,6 +790,7 @@ mod tests {
     fn view_systems_have_disjoint_queries() {
         let mut app = App::new();
         app.init_resource::<PreviewViewport>()
+            .init_resource::<SceneDirty>()
             .insert_resource(Assets::<Image>::default())
             .insert_resource(Assets::<TerrainMaterial>::default())
             .insert_resource(Assets::<WaterMaterial>::default())
@@ -738,10 +807,47 @@ mod tests {
                     apply_target,
                     crate::terrain_material::apply_terrain_conf,
                     crate::water_material::apply_water_conf,
+                    gate_scene_camera,
                 )
                     .chain(),
             );
         app.update();
+    }
+
+    /// a mark keeps the camera on for `SETTLE_FRAMES` frames, then it goes off until the next
+    #[test]
+    fn scene_camera_renders_only_after_a_mark() {
+        let mut dirty = SceneDirty {
+            frames_left: 0,
+            visible: true,
+        };
+        let mut app = App::new();
+        app.add_systems(Update, gate_scene_camera);
+        let cam = app
+            .world_mut()
+            .spawn((
+                SceneCamera,
+                Camera {
+                    is_active: true,
+                    ..default()
+                },
+            ))
+            .id();
+        let active = |app: &mut App| app.world().get::<Camera>(cam).unwrap().is_active;
+        app.insert_resource(std::mem::take(&mut dirty));
+        app.update();
+        assert!(!active(&mut app), "nothing marked: the camera is off");
+        app.world_mut().resource_mut::<SceneDirty>().mark();
+        for frame in 0..SETTLE_FRAMES {
+            app.update();
+            assert!(active(&mut app), "frame {frame} after the mark renders");
+        }
+        app.update();
+        assert!(!active(&mut app), "the camera goes off once settled");
+        app.world_mut().resource_mut::<SceneDirty>().visible = false;
+        app.world_mut().resource_mut::<SceneDirty>().mark();
+        app.update();
+        assert!(!active(&mut app), "a hidden square never renders");
     }
 
     /// the elevation control reproduces the former fixed `(-0.5, -0.5, -0.5)` sun at

@@ -69,7 +69,7 @@ impl PanelExport {
         ui.horizontal(|ui| {
             ui.heading("Export heightmaps");
             if !self.enabled {
-                ui.spinner();
+                crate::spinner::spinner(ui);
             }
         });
         ui.add(egui::ProgressBar::new(progress).text(progress_text));

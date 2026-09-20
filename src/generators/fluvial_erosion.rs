@@ -23,7 +23,7 @@ const AREA_EXPONENT: f32 = 0.5;
 const STRENGTH_MAX: f32 = 8.0;
 /// drainage area, as a fraction of the map, below which every cell incises at the same rate :
 /// the hillslopes get a common minimum rate instead of a single cell's share of the trunk
-const HILLSLOPE_AREA: f32 = 1e-4;
+pub(crate) const HILLSLOPE_AREA: f32 = 1e-4;
 /// share of the excess a talus pass moves (ThermalErosion's `strength`)
 const TALUS_STRENGTH: f32 = 0.5;
 /// plain hover text of the strength parameter
@@ -121,15 +121,15 @@ fn render_fluvial_row(ui: &mut egui::Ui, conf: &mut FluvialErosionConf) {
 }
 
 /// the conf converted to the working grid : `scale` is working cells per reference cell
-struct FluvialParams {
+pub(crate) struct FluvialParams {
     /// incision coefficient; slopes are measured per reference cell, hence the `scale` factor
-    k: f32,
-    uplift: f32,
-    iterations: usize,
-    water_level: f32,
+    pub(crate) k: f32,
+    pub(crate) uplift: f32,
+    pub(crate) iterations: usize,
+    pub(crate) water_level: f32,
     /// the talus passes run between two incisions; `passes` is `ceil(scale)`, as one
     /// ThermalErosion iteration
-    talus: ThermalParams,
+    pub(crate) talus: ThermalParams,
 }
 
 impl FluvialParams {
@@ -151,15 +151,23 @@ impl FluvialParams {
     }
 }
 
+/// the working grid the iterations run on and the conf converted to it; shared with the GPU twin
+pub(crate) fn fluvial_plan(
+    size: (usize, usize),
+    conf: &FluvialErosionConf,
+) -> ((usize, usize), FluvialParams) {
+    let work = work_size(size, conf.work_res as usize);
+    let scale = work.0.max(work.1) as f32 / REFERENCE_RES;
+    (work, FluvialParams::new(conf, scale))
+}
+
 pub fn gen_fluvial_erosion(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &FluvialErosionConf,
     progress: &mut Progress,
 ) {
-    let work = work_size(size, conf.work_res as usize);
-    let scale = work.0.max(work.1) as f32 / REFERENCE_RES;
-    let params = FluvialParams::new(conf, scale);
+    let (work, params) = fluvial_plan(size, conf);
     if work == size {
         incise_iterations(size, hmap, &params, progress);
         return;
@@ -219,7 +227,12 @@ fn incision_coef(area: f32, n_cells: f32, k: f32, d: f32) -> f32 {
 /// height when the cell is solved, so any incision coefficient is stable. Sea cells are
 /// skipped, border land drains to `water_level` one cell away, and no receiver counts as
 /// lower than `water_level`
-fn incise(size: (usize, usize), hmap: &mut [f32], net: &FlowNet, params: &FluvialParams) {
+pub(crate) fn incise(
+    size: (usize, usize),
+    hmap: &mut [f32],
+    net: &FlowNet,
+    params: &FluvialParams,
+) {
     let n_cells = (size.0 * size.1) as f32;
     for &i in &net.order {
         let i = i as usize;

@@ -215,7 +215,10 @@ mod tests {
         fn time(label: &str, f: impl FnOnce()) {
             let start = Instant::now();
             f();
-            println!("{label:<44} {:>9.0} ms", start.elapsed().as_secs_f64() * 1000.0);
+            println!(
+                "{label:<44} {:>9.0} ms",
+                start.elapsed().as_secs_f64() * 1000.0
+            );
         }
         let sides: Vec<usize> = std::env::var("WGEN_BENCH_SIDES")
             .map(|v| v.split(',').map(|s| s.parse().unwrap()).collect())
@@ -264,7 +267,10 @@ mod tests {
             });
             for &wr in &work_res {
                 h.copy_from_slice(&base);
-                let conf = ThermalErosionConf { work_res: wr, ..Default::default() };
+                let conf = ThermalErosionConf {
+                    work_res: wr,
+                    ..Default::default()
+                };
                 time(&format!("thermal {side} work {wr}"), || {
                     gen_thermal_erosion(size, &mut h, &conf, &mut p)
                 });
@@ -278,10 +284,107 @@ mod tests {
                     });
                 }
                 h.copy_from_slice(&base);
-                let conf = FluvialErosionConf { work_res: wr, ..Default::default() };
+                let conf = FluvialErosionConf {
+                    work_res: wr,
+                    ..Default::default()
+                };
                 time(&format!("fluvial {side} work {wr}"), || {
                     gen_fluvial_erosion(size, &mut h, &conf, &mut p)
                 });
+                if let Some(gpu) = crate::gpu::test_context() {
+                    h.copy_from_slice(&base);
+                    time(&format!("fluvial gpu {side} work {wr}"), || {
+                        crate::gpu::fluvial_erosion::gen_fluvial_erosion_gpu(
+                            &gpu, size, &mut h, &conf, &mut p,
+                        )
+                        .unwrap()
+                    });
+                }
+            }
+        }
+    }
+
+    /// `cargo test project_timing_report -- --ignored --nocapture`: the stack of a `.wgen`
+    /// project (`WGEN_PROJECT`, default `ex_continent.wgen`) at every side of
+    /// `WGEN_BENCH_SIDES` (default 512,2048), on the CPU and on the GPU: one line per step, the
+    /// difference between the two results, and a hillshade of each in `target/calib` — the
+    /// command-line export (`cli.rs`) run from the test harness
+    #[test]
+    #[ignore]
+    fn project_timing_report() {
+        use crate::gpu::Backend;
+        use crate::project::Project;
+        use crate::worldgen::WorldGenerator;
+        use crate::ThreadMessage;
+        let path = std::env::var("WGEN_PROJECT").unwrap_or_else(|_| "ex_continent.wgen".into());
+        let project = Project::load(&path).unwrap();
+        let stem = Path::new(&path)
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let sides: Vec<usize> = std::env::var("WGEN_BENCH_SIDES")
+            .map(|v| v.split(',').map(|s| s.parse().unwrap()).collect())
+            .unwrap_or_else(|_| vec![512, 2048]);
+        let mut backends = vec![("cpu", Backend::Cpu)];
+        if let Some(gpu) = crate::gpu::test_context() {
+            backends.push(("gpu", Backend::Gpu(gpu)));
+        }
+        let dir = calib_dir();
+        for side in sides {
+            let size = (side, side);
+            let mut results: Vec<Vec<f32>> = Vec::new();
+            for (name, backend) in &backends {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let (steps, backend, seed) = (project.steps.clone(), backend.clone(), project.seed);
+                let start = Instant::now();
+                let worker = std::thread::spawn(move || {
+                    let mut wgen = WorldGenerator::new(seed, size);
+                    wgen.set_backend(backend);
+                    wgen.generate(&steps, tx, 0.25);
+                    wgen.get_export_map()
+                });
+                let mut step_start = Instant::now();
+                while let Ok(msg) = rx.recv() {
+                    if let ThreadMessage::ExporterStepDone(i) = msg {
+                        println!(
+                            "{stem} {side} {name} step {i} {:<20} {:>9.0} ms",
+                            project.steps[i].typ.name(),
+                            step_start.elapsed().as_secs_f64() * 1000.0
+                        );
+                        step_start = Instant::now();
+                    }
+                }
+                let map = worker.join().unwrap();
+                println!(
+                    "{stem} {side} {name} total {:>28.0} ms",
+                    start.elapsed().as_secs_f64() * 1000.0
+                );
+                let h = map.borrow();
+                let gain = shade_gain(size, h);
+                write_hillshade_png(
+                    &dir.join(format!("{stem}_{side}_{name}_shade.png")),
+                    size,
+                    h,
+                    gain,
+                );
+                results.push(h.clone());
+            }
+            if let [cpu, gpu] = results.as_slice() {
+                let n = cpu.len() as f32;
+                let range = range(cpu);
+                let (mut sum, mut max) = (0.0f32, 0.0f32);
+                for (a, b) in cpu.iter().zip(gpu) {
+                    let d = (a - b).abs();
+                    sum += d;
+                    max = max.max(d);
+                }
+                println!(
+                    "{stem} {side} cpu vs gpu: mean |d| {:.4} max {:.4} (map range {:.3})",
+                    sum / n,
+                    max,
+                    range
+                );
             }
         }
     }
@@ -298,14 +401,19 @@ mod tests {
         fn time(label: &str, f: impl FnOnce()) {
             let start = Instant::now();
             f();
-            println!("{label:<44} {:>9.0} ms", start.elapsed().as_secs_f64() * 1000.0);
+            println!(
+                "{label:<44} {:>9.0} ms",
+                start.elapsed().as_secs_f64() * 1000.0
+            );
         }
         let mut p = Progress::headless();
         for work in [512usize, 1024, 2048] {
             let size = (work, work);
             let h = stock_map(1, size);
             let mut net = FlowNet::new();
-            time(&format!("fluvial route {work}"), || net.route(size, &h, 0.0));
+            time(&format!("fluvial route {work}"), || {
+                net.route(size, &h, 0.0)
+            });
             let params = ThermalParams::new(&ThermalErosionConf::default(), work as f32 / 512.0);
             let mut out = h.clone();
             time(&format!("thermal slide_pass {work}"), || {
@@ -328,16 +436,22 @@ mod tests {
             let scale = side as f32 / side as f32;
             for y in 0..side {
                 for x in 0..side {
-                    h[x + y * side] = bilinear(&lattice, x as f32 * scale, y as f32 * scale, (n, n));
+                    h[x + y * side] =
+                        bilinear(&lattice, x as f32 * scale, y as f32 * scale, (n, n));
                 }
             }
         });
         for (nb_hill, base_radius) in [(2000usize, 40.0f32), (5000, 16.0), (600, 100.0)] {
-            let conf = HillsConf { nb_hill, base_radius, ..Default::default() };
+            let conf = HillsConf {
+                nb_hill,
+                base_radius,
+                ..Default::default()
+            };
             h.fill(0.0);
-            time(&format!("hills 8192 count {nb_hill} radius {base_radius}"), || {
-                gen_hills(1, (side, side), &mut h, &conf, &mut p)
-            });
+            time(
+                &format!("hills 8192 count {nb_hill} radius {base_radius}"),
+                || gen_hills(1, (side, side), &mut h, &conf, &mut p),
+            );
         }
     }
 }

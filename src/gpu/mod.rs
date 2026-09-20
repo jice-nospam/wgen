@@ -15,6 +15,7 @@ use crate::generators::Progress;
 use crate::log;
 
 pub mod fbm;
+pub mod fluvial_erosion;
 pub mod ping_pong;
 pub mod thermal_erosion;
 
@@ -61,20 +62,49 @@ enum Layout {
     PerPixel,
     /// `run_ping_pong`: 0 `Band`, 1 params, 2 `src` read-only, 3 `dst` read-write
     PingPong,
+    /// resident multi-kernel steps (`fluvial_erosion.rs`): 0 `Band`, 1 params bound with a
+    /// dynamic offset (one entry per dispatch role), then one storage buffer per element,
+    /// `true` for read-only
+    Resident(&'static [bool]),
 }
 
 impl Layout {
-    fn entries(self) -> [wgpu::BindGroupLayoutEntry; 4] {
-        let (two, three) = match self {
-            Layout::PerPixel => (false, true),
-            Layout::PingPong => (true, false),
+    fn entries(self) -> Vec<wgpu::BindGroupLayoutEntry> {
+        let storage = |binding, read_only| {
+            buffer_entry(binding, wgpu::BufferBindingType::Storage { read_only })
         };
-        [
-            buffer_entry(0, wgpu::BufferBindingType::Uniform),
-            buffer_entry(1, wgpu::BufferBindingType::Uniform),
-            buffer_entry(2, wgpu::BufferBindingType::Storage { read_only: two }),
-            buffer_entry(3, wgpu::BufferBindingType::Storage { read_only: three }),
-        ]
+        match self {
+            Layout::PerPixel | Layout::PingPong => {
+                let (two, three) = match self {
+                    Layout::PerPixel => (false, true),
+                    _ => (true, false),
+                };
+                vec![
+                    buffer_entry(0, wgpu::BufferBindingType::Uniform),
+                    buffer_entry(1, wgpu::BufferBindingType::Uniform),
+                    storage(2, two),
+                    storage(3, three),
+                ]
+            }
+            Layout::Resident(buffers) => {
+                let mut params = buffer_entry(1, wgpu::BufferBindingType::Uniform);
+                if let wgpu::BindingType::Buffer {
+                    ref mut has_dynamic_offset,
+                    ..
+                } = params.ty
+                {
+                    *has_dynamic_offset = true;
+                }
+                let mut entries = vec![buffer_entry(0, wgpu::BufferBindingType::Uniform), params];
+                entries.extend(
+                    buffers
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &ro)| storage(i as u32 + 2, ro)),
+                );
+                entries
+            }
+        }
     }
 }
 

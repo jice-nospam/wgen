@@ -10,7 +10,10 @@ use crate::generators::{
     IslandConf, LandMassConf, MidPointConf, MudSlideConf, NormalizeConf, Progress,
     ThermalErosionConf, WaterErosionConf,
 };
-use crate::gpu::{fbm::gen_fbm_gpu, thermal_erosion::gen_thermal_erosion_gpu, Backend};
+use crate::gpu::{
+    fbm::gen_fbm_gpu, fluvial_erosion::gen_fluvial_erosion_gpu,
+    thermal_erosion::gen_thermal_erosion_gpu, Backend,
+};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 /// Each value contains its own configuration
@@ -131,7 +134,15 @@ impl StepType {
                 None => gen_thermal_erosion(size, h, conf, progress),
             },
             StepType::WaterErosion(conf) => gen_water_erosion(seed, size, h, conf, progress),
-            StepType::FluvialErosion(conf) => gen_fluvial_erosion(size, h, conf, progress),
+            StepType::FluvialErosion(conf) => match backend.gpu() {
+                Some(gpu) => {
+                    if let Err(e) = gen_fluvial_erosion_gpu(gpu, size, h, conf, progress) {
+                        crate::log(&format!("gpu=>fluvial fell back to the CPU: {}", e.0));
+                        gen_fluvial_erosion(size, h, conf, progress)
+                    }
+                }
+                None => gen_fluvial_erosion(size, h, conf, progress),
+            },
             StepType::Island(conf) => gen_island(size, h, conf, progress),
         }
     }
@@ -236,6 +247,44 @@ mod tests {
             .map(|(a, b)| (a - b).abs())
             .fold(0.0f32, f32::max);
         assert!(diff <= 1e-4, "max |cpu - gpu| = {diff}");
+    }
+
+    #[test]
+    fn fluvial_step_agrees_across_backends() {
+        let Some(gpu) = crate::gpu::test_context() else {
+            return;
+        };
+        let step = StepType::FluvialErosion(FluvialErosionConf::default());
+        let input = crate::generators::calib::stock_map(9, (64, 64));
+        let mut cpu = input.clone();
+        let mut on_gpu = input.clone();
+        step.run(
+            9,
+            (64, 64),
+            &mut cpu,
+            &mut Progress::headless(),
+            &Backend::Cpu,
+        );
+        step.run(
+            9,
+            (64, 64),
+            &mut on_gpu,
+            &mut Progress::headless(),
+            &Backend::Gpu(gpu),
+        );
+        assert!(cpu != input, "the step did nothing");
+        assert!(on_gpu != input, "the twin did nothing");
+        // the twin is a different algorithm (F-020): the same landscape, not the same heights
+        let n = cpu.len() as f32;
+        let (ma, mb) = (cpu.iter().sum::<f32>() / n, on_gpu.iter().sum::<f32>() / n);
+        let (mut sab, mut saa, mut sbb) = (0.0, 0.0, 0.0);
+        for (a, b) in cpu.iter().zip(&on_gpu) {
+            sab += (a - ma) * (b - mb);
+            saa += (a - ma) * (a - ma);
+            sbb += (b - mb) * (b - mb);
+        }
+        let r = sab / (saa * sbb).sqrt();
+        assert!(r > 0.99, "correlation cpu / gpu = {r}");
     }
 
     #[test]

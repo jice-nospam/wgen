@@ -7,6 +7,9 @@
 - 3D preview: physically based sky (`Show skybox`) with sun disk, aerial perspective and sky-lit shadows; `Sun elevation °` and `Exposure EV` controls
 - Fbm runs on the GPU
 - ThermalErosion runs on the GPU
+- FluvialErosion runs on the GPU
+- command-line export: `wgen --export <project.wgen> --out <file.png|file.exr> [--size N|WxH] [--cpu]` generates a project without the editor and prints the time of every step
+- the 3D preview renders only for a few frames after something changed (terrain, camera, sun, water, sky, panel size); an untouched preview costs no GPU time
 
 ### Changed
 

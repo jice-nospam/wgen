@@ -42,7 +42,7 @@ The current version features those generators :
 - Island : lower the altitude along the borders of the map
 
 ### GPU
-When a Vulkan / DirectX 12 / Metal GPU is present, the generators that have a GPU version (currently Fbm and ThermalErosion) run on it, for the preview and the export alike. The generator panel then shows `GPU: <adapter name>` and a `Use GPU` checkbox; unticking it recomputes everything on the CPU. GPU and CPU results agree to floating-point rounding, so the terrain does not change when you toggle it. Set the environment variable `WGEN_CPU=1` to start wgen without a GPU. If the GPU fails at any point, wgen logs it and falls back to the CPU for the rest of the session.
+When a Vulkan / DirectX 12 / Metal GPU is present, the generators that have a GPU version (currently Fbm, ThermalErosion and FluvialErosion) run on it, for the preview and the export alike. The generator panel then shows `GPU: <adapter name>` and a `Use GPU` checkbox; unticking it recomputes everything on the CPU. Fbm and ThermalErosion agree with the CPU to floating-point rounding, so the terrain does not change when you toggle it. FluvialErosion on the GPU is a different algorithm built for it (an iterative depression fill and a parallel drainage accumulation instead of the CPU's priority flood): it carves the same valley network but the heights differ slightly, so toggling the checkbox changes the terrain a little. Set the environment variable `WGEN_CPU=1` to start wgen without a GPU. If the GPU fails at any point, wgen logs it and falls back to the CPU for the rest of the session.
 
 ## Masks
 You can add a mask to a generator step by clicking the square next to the generator name.
@@ -87,6 +87,16 @@ File names will be generated using _x?_y? pattern, for example for 2x2 tiles :
 If the seamless checkbox is checked, the same row of pixels will be repeated on the border of two adjacent tiles.
 This is not needed if you export to unreal engine as it natively supports multi-textures heightmaps.
 This might be needed for other engines where each tile is an independant terrain object that needs to have matching border vertices with the adjacent object.
+
+## Command line
+wgen can also generate a project without opening the editor, which is the way to time a stack or to script exports:
+
+```
+wgen --export <project.wgen> --out <file.png|file.exr> [--size <side>|<width>x<height>] [--cpu]
+wgen --help
+```
+
+`--export` loads the project (a file saved by the editor), runs its steps at the given size (1024 by default, as one map, never tiled) and writes it as a 16-bit PNG or an EXR, rescaled to 0..1 like the editor's export. The GPU is used when one is available; `--cpu` runs every generator on the CPU. One line per step is printed with its time, then the total. Exit code 0 on success, 1 when a step or the write fails, 2 for a bad command line.
 
 # Engines guide
 ## Unreal Engine 5

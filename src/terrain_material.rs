@@ -3,7 +3,7 @@
 //! curvature follow) instead of one base colour. `apply_terrain_conf` keeps the shader's
 //! uniform in step with the "3d preview" panel.
 use crate::panel_3dview::Panel3dViewConf;
-use crate::preview3d::{PreviewViewport, Terrain, ZSCALE};
+use crate::preview3d::{PreviewViewport, SceneDirty, Terrain, ZSCALE};
 use bevy::asset::embedded_asset;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
@@ -68,6 +68,7 @@ pub fn terrain_settings(conf: &Panel3dViewConf) -> TerrainSettings {
 /// bind group is not re-prepared every frame
 pub fn apply_terrain_conf(
     vp: Res<PreviewViewport>,
+    mut dirty: ResMut<SceneDirty>,
     terrain: Option<Single<&MeshMaterial3d<TerrainMaterial>, With<Terrain>>>,
     mut materials: ResMut<Assets<TerrainMaterial>>,
 ) {
@@ -83,6 +84,7 @@ pub fn apply_terrain_conf(
     }
     if let Some(mut material) = materials.get_mut(&terrain.0) {
         material.extension.settings = want;
+        dirty.mark();
     }
 }
 

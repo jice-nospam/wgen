@@ -18,6 +18,7 @@ use std::sync::mpsc::Sender;
 
 pub use fbm::{gen_fbm, render_fbm, FbmConf};
 pub use flow::{receiver_distance, FlowNet};
+pub(crate) use fluvial_erosion::{fluvial_plan, FluvialParams, HILLSLOPE_AREA};
 pub use fluvial_erosion::{gen_fluvial_erosion, render_fluvial_erosion, FluvialErosionConf};
 pub use hills::{gen_hills, render_hills, HillsConf};
 pub use island::{gen_island, render_island, IslandConf};

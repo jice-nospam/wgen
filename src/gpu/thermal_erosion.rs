@@ -158,7 +158,13 @@ mod tests {
     fn thermal_gpu_matches_cpu() {
         let Some(gpu) = test_context() else { return };
         let input = stock_map(5, (64, 64));
-        assert!(assert_agrees(&gpu, "default", (64, 64), &input, &ThermalErosionConf::default()));
+        assert!(assert_agrees(
+            &gpu,
+            "default",
+            (64, 64),
+            &input,
+            &ThermalErosionConf::default()
+        ));
         // the second conf's talus is above every slope of a 64×64 stock map: agreement only
         assert_agrees(&gpu, "second", (64, 64), &input, &second_conf());
     }

@@ -3,6 +3,7 @@ extern crate image;
 extern crate noise;
 extern crate rand;
 
+mod cli;
 mod exporter;
 mod fps;
 mod generators;
@@ -15,6 +16,7 @@ mod panel_maskedit;
 mod panel_save;
 mod preview3d;
 mod project;
+mod spinner;
 mod step;
 mod terrain_material;
 mod water_material;
@@ -27,7 +29,7 @@ use bevy::prelude::*;
 use bevy::render::renderer::RenderAdapterInfo;
 use bevy::window::PrimaryWindow;
 use bevy::winit::{EventLoopProxyWrapper, UpdateMode, WinitSettings, WinitUserEvent};
-use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use bevy_egui::{EguiContexts, EguiInput, EguiPlugin, EguiPreUpdateSet, EguiPrimaryContextPass};
 use egui::{Frame, Id, LayerId, UiBuilder};
 use exporter::export_heightmap;
 use gpu::{Backend, GpuContext};
@@ -84,6 +86,21 @@ fn main() {
         num_cpus::get(),
         num_cpus::get_physical()
     ));
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match cli::parse(&args) {
+        Ok(None) => {}
+        Ok(Some(export)) => std::process::exit(match cli::run(export) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        }),
+        Err(msg) => {
+            eprintln!("{msg}");
+            std::process::exit(2);
+        }
+    }
     App::new()
         .add_plugins(
             DefaultPlugins
@@ -107,6 +124,7 @@ fn main() {
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .insert_resource(WinitSettings::desktop_app())
         .init_resource::<PreviewViewport>()
+        .init_resource::<preview3d::SceneDirty>()
         .add_systems(
             Startup,
             (
@@ -116,6 +134,12 @@ fn main() {
                 preview3d::spawn_sky,
             )
                 .chain(),
+        )
+        .add_systems(
+            PreUpdate,
+            drop_repeated_modifiers
+                .after(EguiPreUpdateSet::ProcessInput)
+                .before(EguiPreUpdateSet::BeginPass),
         )
         .add_systems(EguiPrimaryContextPass, ui_system)
         .add_systems(Update, preview3d::update_terrain)
@@ -127,6 +151,7 @@ fn main() {
                 preview3d::apply_target,
                 terrain_material::apply_terrain_conf,
                 water_material::apply_water_conf,
+                preview3d::gate_scene_camera,
             )
                 .chain()
                 .before(CameraUpdateSystems),
@@ -152,6 +177,28 @@ fn setup(
 }
 
 /// one egui frame
+/// keeps the app idle when nothing happens: bevy_egui 0.42 pushes a `ModifiersChanged` event
+/// into every frame's input, egui then requests an immediate repaint for the non-empty input
+/// (`InputState::wants_repaint_after`), bevy_egui forwards it as `RequestRedraw`, and the loop
+/// renders continuously despite `desktop_app()`. Dropping the event when the modifiers did not
+/// change leaves the input empty between real events
+fn drop_repeated_modifiers(
+    mut inputs: Query<&mut EguiInput>,
+    mut last: Local<Option<egui::Modifiers>>,
+) {
+    for mut input in &mut inputs {
+        let repeated = matches!(
+            input.events.last(),
+            Some(egui::Event::ModifiersChanged(m)) if *last == Some(*m)
+        );
+        if repeated {
+            input.events.pop();
+        } else if let Some(egui::Event::ModifiersChanged(m)) = input.events.last() {
+            *last = Some(*m);
+        }
+    }
+}
+
 fn ui_system(
     mut contexts: EguiContexts,
     mut app: ResMut<MyApp>,
@@ -665,5 +712,44 @@ pub fn panic_message(payload: &(dyn Any + Send)) -> String {
         s.clone()
     } else {
         "unknown panic".to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// the input bevy_egui hands egui every frame: its events plus the unconditional
+    /// `ModifiersChanged`; the system must leave an empty input when nothing changed and keep
+    /// the event on a real change
+    fn frame(app: &mut App, entity: Entity, events: Vec<egui::Event>) -> Vec<egui::Event> {
+        app.world_mut().get_mut::<EguiInput>(entity).unwrap().events = events;
+        app.update();
+        app.world().get::<EguiInput>(entity).unwrap().events.clone()
+    }
+
+    #[test]
+    fn repeated_modifiers_event_is_dropped_between_real_events() {
+        let mut app = App::new();
+        app.add_systems(Update, drop_repeated_modifiers);
+        let entity = app.world_mut().spawn(EguiInput::default()).id();
+        let none = egui::Event::ModifiersChanged(egui::Modifiers::NONE);
+        let ctrl = egui::Event::ModifiersChanged(egui::Modifiers::CTRL);
+        // first frame: the state is unknown, the event goes through
+        assert_eq!(
+            frame(&mut app, entity, vec![none.clone()]),
+            vec![none.clone()]
+        );
+        // idle frames: nothing left for egui to react to
+        assert_eq!(frame(&mut app, entity, vec![none.clone()]), vec![]);
+        assert_eq!(frame(&mut app, entity, vec![none.clone()]), vec![]);
+        // a real change is kept, together with the frame's other events
+        let key = egui::Event::Text("a".into());
+        assert_eq!(
+            frame(&mut app, entity, vec![key.clone(), ctrl.clone()]),
+            vec![key, ctrl.clone()]
+        );
+        assert_eq!(frame(&mut app, entity, vec![ctrl.clone()]), vec![]);
+        assert_eq!(frame(&mut app, entity, vec![none.clone()]), vec![none]);
     }
 }

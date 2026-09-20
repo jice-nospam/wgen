@@ -86,7 +86,8 @@ pub fn export_heightmap(
     Ok(())
 }
 
-fn write_png(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn write_png(
     file_width: usize,
     file_height: usize,
     offset_x: usize,
@@ -118,7 +119,8 @@ fn write_png(
     .map_err(|e| format!("Error while saving {}: {}", &path, e))
 }
 
-fn write_exr(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn write_exr(
     file_width: usize,
     file_height: usize,
     offset_x: usize,

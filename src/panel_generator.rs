@@ -127,7 +127,7 @@ impl PanelGenerator {
         ui.horizontal(|ui| {
             ui.heading("Generators");
             if self.is_running {
-                ui.spinner();
+                crate::spinner::spinner(ui);
             }
         });
         ui.add(egui::ProgressBar::new(progress).show_percentage());

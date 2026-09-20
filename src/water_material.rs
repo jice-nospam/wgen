@@ -4,7 +4,7 @@
 //! a tileable ripple normal map scrolled by time. `apply_water_conf` keeps the shader's
 //! uniform in step with the "3d preview" panel.
 use crate::panel_3dview::Panel3dViewConf;
-use crate::preview3d::{PreviewViewport, Water, ZSCALE};
+use crate::preview3d::{PreviewViewport, SceneDirty, Water, ZSCALE};
 use bevy::asset::{embedded_asset, RenderAssetUsages};
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
@@ -230,6 +230,7 @@ fn downsample_normals(level: &[Vec3], side: usize) -> Vec<Vec3> {
 /// bind group is not re-prepared every frame
 pub fn apply_water_conf(
     vp: Res<PreviewViewport>,
+    mut dirty: ResMut<SceneDirty>,
     water: Option<Single<&MeshMaterial3d<WaterMaterial>, With<Water>>>,
     mut materials: ResMut<Assets<WaterMaterial>>,
 ) {
@@ -245,6 +246,7 @@ pub fn apply_water_conf(
     }
     if let Some(mut material) = materials.get_mut(&water.0) {
         material.extension.settings = want;
+        dirty.mark();
     }
 }
 

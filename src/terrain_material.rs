@@ -12,6 +12,9 @@ use bevy::shader::ShaderRef;
 
 /// the shader, embedded in the binary; the crate is `worldgen` and `src` is trimmed
 const SHADER_PATH: &str = "embedded://worldgen/terrain.wgsl";
+/// half-height, in h01, of the band around the water plane whose terrain fragments are
+/// dropped so the plane wins every depth tie at the shoreline (1 scene unit at `hscale` 100)
+pub const SHORE_BAND: f32 = 1.0 / ZSCALE;
 
 pub type TerrainMaterial = ExtendedMaterial<StandardMaterial, TerrainExtension>;
 
@@ -32,7 +35,8 @@ pub struct TerrainSettings {
     pub snow_line: f32,
     /// surface detail strength 0..1
     pub detail: f32,
-    pub _pad: f32,
+    /// fragments with `|h01 - water_level| < shore_band` are discarded; 0 when the water is hidden
+    pub shore_band: f32,
 }
 
 impl MaterialExtension for TerrainExtension {
@@ -60,7 +64,7 @@ pub fn terrain_settings(conf: &Panel3dViewConf) -> TerrainSettings {
         water_level: conf.water_level / ZSCALE,
         snow_line: 2.0,
         detail: 0.0,
-        _pad: 0.0,
+        shore_band: if conf.show_water { SHORE_BAND } else { 0.0 },
     }
 }
 
@@ -102,5 +106,19 @@ mod tests {
         assert_eq!(s.water_level, 0.2);
         assert_eq!(s.snow_line, 2.0);
         assert_eq!(s.detail, 0.0);
+    }
+
+    #[test]
+    fn shore_band_follows_the_water_toggle() {
+        let on = Panel3dViewConf {
+            show_water: true,
+            ..Default::default()
+        };
+        let off = Panel3dViewConf {
+            show_water: false,
+            ..Default::default()
+        };
+        assert_eq!(terrain_settings(&on).shore_band, SHORE_BAND);
+        assert_eq!(terrain_settings(&off).shore_band, 0.0);
     }
 }

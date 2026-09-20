@@ -1,6 +1,8 @@
 // The terrain's fragment shader, for both the deferred prepass (gbuffer) and the forward
 // pass: the standard PBR inputs with base colour and roughness splatted from sand, grass,
 // rock and seabed by slope, height (`uv_b.x`), curvature (`uv_b.y`) and a value noise.
+// Fragments within `shore_band` of the water plane are discarded, so the plane, not a depth
+// fight, shows wherever the terrain is level with it.
 // Layout of Bevy's `examples/shader/extended_material.rs`.
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
@@ -24,7 +26,7 @@ struct TerrainSettings {
     water_level: f32,
     snow_line: f32,
     detail: f32,
-    _pad: f32,
+    shore_band: f32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100)
@@ -57,6 +59,13 @@ fn fragment(
     in: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
+    // normalised height and cell curvature (-1 ridge .. 1 valley), from the mesh
+    let h01 = in.uv_b.x;
+    let curv = in.uv_b.y * 2.0 - 1.0;
+    let w = terrain.water_level;
+    if abs(h01 - w) < terrain.shore_band {
+        discard;
+    }
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     // every uniform field is read, so the struct cannot drift from the Rust side unnoticed
     _ = terrain.snow_line + terrain.detail;
@@ -64,14 +73,10 @@ fn fragment(
     let nrm = normalize(in.world_normal);
     // 0 on flat ground, 1 on a vertical face
     let slope = 1.0 - nrm.y;
-    // normalised height and cell curvature (-1 ridge .. 1 valley), from the mesh
-    let h01 = in.uv_b.x;
-    let curv = in.uv_b.y * 2.0 - 1.0;
     // terrain-local coordinates in scene units: the pattern turns with the terrain and is
     // the same at every preview size; one noise feature is about 8 units
     let p = in.uv * 500.0;
     let n = fbm2(p / 8.0);
-    let w = terrain.water_level;
 
     let grass = mix(vec3<f32>(0.13, 0.30, 0.08), vec3<f32>(0.24, 0.36, 0.10), n);
     let rock = mix(vec3<f32>(0.32, 0.29, 0.26), vec3<f32>(0.20, 0.18, 0.17), n);

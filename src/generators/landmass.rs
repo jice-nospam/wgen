@@ -10,8 +10,6 @@ pub struct LandMassConf {
     pub water_level: f32,
     /// apply h^plain_factor above sea level for sharper mountains and flatter plains
     pub plain_factor: f32,
-    /// lower everything under water level by this value to avoid z fighting between land and water plane near shores
-    pub shore_height: f32,
 }
 
 impl Default for LandMassConf {
@@ -20,7 +18,6 @@ impl Default for LandMassConf {
             land_proportion: 0.6,
             water_level: 0.12,
             plain_factor: 2.5,
-            shore_height: 0.05,
         }
     }
 }
@@ -48,13 +45,6 @@ pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
             egui::DragValue::new(&mut conf.plain_factor)
                 .speed(0.01)
                 .range(1.0..=4.0),
-        );
-        ui.label("shore height")
-            .on_hover_text("How far the land under the sea is pushed down");
-        ui.add(
-            egui::DragValue::new(&mut conf.shore_height)
-                .speed(0.01)
-                .range(0.0..=0.1),
         );
     });
 }
@@ -101,7 +91,8 @@ pub fn gen_landmass(
     });
 }
 
-/// moves the found water level to `conf.water_level`, stretching land and sea separately
+/// moves the found water level to `conf.water_level`, stretching land and sea separately;
+/// both sides meet at `conf.water_level`, so the shoreline has no step
 fn landmass_row_rescale(
     row: &mut [f32],
     new_water_level: f32,
@@ -113,7 +104,7 @@ fn landmass_row_rescale(
         if *h > new_water_level {
             *h = conf.water_level + (*h - new_water_level) * land_coef;
         } else {
-            *h = *h * water_coef - conf.shore_height;
+            *h *= water_coef;
         }
     }
 }
@@ -161,5 +152,31 @@ mod tests {
         gen_landmass((16, 16), &mut h, &conf, &mut Progress::headless());
         let land = h.iter().filter(|&&v| v >= 0.12).count();
         assert!((120..=136).contains(&land), "{land} land cells");
+    }
+
+    /// a ramp stays a ramp: no step at the shoreline, whatever the old `shore_height`
+    #[test]
+    fn landmass_is_continuous_at_the_shoreline() {
+        let conf = LandMassConf {
+            land_proportion: 0.5,
+            water_level: 0.12,
+            plain_factor: 1.0,
+        };
+        let mut h: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
+        gen_landmass((16, 16), &mut h, &conf, &mut Progress::headless());
+        let max_jump = h
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0f32, f32::max);
+        assert!(max_jump < 0.01, "step of {max_jump} between two cells");
+        assert!(h[0].abs() < 1e-6, "the sea floor starts at 0, not {}", h[0]);
+    }
+
+    /// files written with the removed `shore_height` field still load
+    #[test]
+    fn landmass_conf_ignores_shore_height() {
+        let old = "(land_proportion:0.6,water_level:0.12,plain_factor:2.5,shore_height:0.1)";
+        let conf: LandMassConf = ron::from_str(old).unwrap();
+        assert_eq!(conf, LandMassConf::default());
     }
 }

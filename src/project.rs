@@ -89,7 +89,7 @@ fn parse_version(version: &str) -> Option<(u32, u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generators::{HillsConf, NormalizeConf, RidgedConf};
+    use crate::generators::{HillsConf, NormalizeConf, PlateauConf, RidgedConf};
     use crate::worldgen::StepType;
     use crate::MASK_SIZE;
 
@@ -163,18 +163,30 @@ mod tests {
     fn new_generators_round_trip() {
         let project = Project::new(
             7,
-            vec![Step {
-                typ: StepType::Ridged(RidgedConf {
-                    zoom: 5.0,
-                    octaves: 3.0,
-                    scale: 0.7,
-                    fold: 10.0,
-                    fold_zoom: 2.0,
-                    offset_x: 30.0,
-                    offset_y: 70.0,
-                }),
-                ..Default::default()
-            }],
+            vec![
+                Step {
+                    typ: StepType::Ridged(RidgedConf {
+                        zoom: 5.0,
+                        octaves: 3.0,
+                        scale: 0.7,
+                        fold: 10.0,
+                        fold_zoom: 2.0,
+                        offset_x: 30.0,
+                        offset_y: 70.0,
+                    }),
+                    ..Default::default()
+                },
+                Step {
+                    typ: StepType::Plateau(PlateauConf {
+                        levels: 12,
+                        flat: 0.9,
+                        rounding: 0.0,
+                        jitter: 0.8,
+                        jitter_zoom: 10.0,
+                    }),
+                    ..Default::default()
+                },
+            ],
         );
         let text = project.to_ron().unwrap();
         assert_eq!(Project::from_ron(&text).unwrap(), project);

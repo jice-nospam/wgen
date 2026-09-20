@@ -17,6 +17,7 @@ use crate::log;
 pub mod fbm;
 pub mod fluvial_erosion;
 pub mod ping_pong;
+pub mod plateau;
 pub mod ridged;
 pub mod thermal_erosion;
 

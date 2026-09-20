@@ -33,9 +33,10 @@ The current version features those generators :
 - Hills : superposition of hemispheric hills to generate a smooth terrain
 - Fbm : fractal brownian motion can be used to add noise to an existing terrain or as first step to generate a continent-like terrain.
 - MidPoint : square-diamond mid-point displacement generates a realistic looking heightmap
-- Ridged : ridged multifractal noise with sharp crests, the mountain counterpart of Fbm; fold bends the ranges
+- Ridged : ridged multifractal noise with sharp crests, the mountain counterpart of Fbm
 - Normalize : scales the heightmap back to the range 0.0..1.0. Some generators work better with a normalized heightmap. Check your heightmap values range in the 2D preview.
 - LandMass : scale the terrain so that a defined proportion is above a defined water level. Also applies a x^3 curve above water level to have a nice plain/mountain ratio and can lower underwater terrain to have a crisp coast line
+- Plateau : cuts the terrain into flat stepped levels with wandering edges (mesas, buttes, tablelands)
 - ThermalErosion : crumbles steep slopes into scree, the usual companion of FluvialErosion.
 - FluvialErosion : carves a dendritic valley network with the stream-power law, talus crumbling into the valleys as in ThermalErosion
 - Island : lower the altitude along the borders of the map
@@ -43,7 +44,7 @@ The current version features those generators :
 Two legacy generators, MudSlide and WaterErosion, are no longer offered in the dropdown: ThermalErosion and FluvialErosion replace them and are faster and resolution independent. Projects that contain them still load and run unchanged.
 
 ### GPU
-When a Vulkan / DirectX 12 / Metal GPU is present, the generators that have a GPU version (currently Fbm, Ridged, ThermalErosion and FluvialErosion) run on it, for the preview and the export alike. The generator panel then shows `GPU: <adapter name>` and a `Use GPU` checkbox; unticking it recomputes everything on the CPU. Fbm, Ridged and ThermalErosion agree with the CPU to floating-point rounding, so the terrain does not change when you toggle it. FluvialErosion on the GPU is a different algorithm built for it (an iterative depression fill and a parallel drainage accumulation instead of the CPU's priority flood): it carves the same valley network but the heights differ slightly, so toggling the checkbox changes the terrain a little. Set the environment variable `WGEN_CPU=1` to start wgen without a GPU. If the GPU fails at any point, wgen logs it and falls back to the CPU for the rest of the session.
+When a Vulkan / DirectX 12 / Metal GPU is present, the generators that have a GPU version (currently Fbm, Ridged, Plateau, ThermalErosion and FluvialErosion) run on it, for the preview and the export alike. The generator panel then shows `GPU: <adapter name>` and a `Use GPU` checkbox; unticking it recomputes everything on the CPU. Fbm, Ridged, Plateau and ThermalErosion agree with the CPU to floating-point rounding, so the terrain does not change when you toggle it. FluvialErosion on the GPU is a different algorithm built for it (an iterative depression fill and a parallel drainage accumulation instead of the CPU's priority flood): it carves the same valley network but the heights differ slightly, so toggling the checkbox changes the terrain a little. Set the environment variable `WGEN_CPU=1` to start wgen without a GPU. If the GPU fails at any point, wgen logs it and falls back to the CPU for the rest of the session.
 
 ## Masks
 You can add a mask to a generator step by clicking the square next to the generator name.

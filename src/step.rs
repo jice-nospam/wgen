@@ -4,15 +4,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::generators::{
     gen_fbm, gen_fluvial_erosion, gen_hills, gen_island, gen_landmass, gen_mid_point, gen_mudslide,
-    gen_normalize, gen_ridged, gen_thermal_erosion, gen_water_erosion, render_fbm,
+    gen_normalize, gen_plateau, gen_ridged, gen_thermal_erosion, gen_water_erosion, render_fbm,
     render_fluvial_erosion, render_hills, render_island, render_landmass, render_mid_point,
-    render_mudslide, render_ridged, render_thermal_erosion, render_water_erosion, FbmConf,
-    FluvialErosionConf, HillsConf, IslandConf, LandMassConf, MidPointConf, MudSlideConf,
-    NormalizeConf, Progress, RidgedConf, ThermalErosionConf, WaterErosionConf,
+    render_mudslide, render_plateau, render_ridged, render_thermal_erosion, render_water_erosion,
+    FbmConf, FluvialErosionConf, HillsConf, IslandConf, LandMassConf, MidPointConf, MudSlideConf,
+    NormalizeConf, PlateauConf, Progress, RidgedConf, ThermalErosionConf, WaterErosionConf,
 };
 use crate::gpu::{
-    fbm::gen_fbm_gpu, fluvial_erosion::gen_fluvial_erosion_gpu, ridged::gen_ridged_gpu,
-    thermal_erosion::gen_thermal_erosion_gpu, Backend,
+    fbm::gen_fbm_gpu, fluvial_erosion::gen_fluvial_erosion_gpu, plateau::gen_plateau_gpu,
+    ridged::gen_ridged_gpu, thermal_erosion::gen_thermal_erosion_gpu, Backend,
 };
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -29,13 +29,14 @@ pub enum StepType {
     Island(IslandConf),
     MidPoint(MidPointConf),
     Ridged(RidgedConf),
+    Plateau(PlateauConf),
 }
 
 impl StepType {
     /// the generators the dropdown offers, with their default configuration, in dropdown
     /// order. `MudSlide` and `WaterErosion` are legacy: they only exist in old `.wgen` files
     /// and still load and run, but a new step cannot be one
-    pub fn all() -> [StepType; 9] {
+    pub fn all() -> [StepType; 10] {
         [
             StepType::Hills(HillsConf::default()),
             StepType::Fbm(FbmConf::default()),
@@ -43,6 +44,7 @@ impl StepType {
             StepType::Ridged(RidgedConf::default()),
             StepType::Normalize(NormalizeConf::default()),
             StepType::LandMass(LandMassConf::default()),
+            StepType::Plateau(PlateauConf::default()),
             StepType::ThermalErosion(ThermalErosionConf::default()),
             StepType::FluvialErosion(FluvialErosionConf::default()),
             StepType::Island(IslandConf::default()),
@@ -55,6 +57,7 @@ impl StepType {
             StepType::Fbm(_) => "Fbm",
             StepType::MidPoint(_) => "MidPoint",
             StepType::Ridged(_) => "Ridged",
+            StepType::Plateau(_) => "Plateau",
             StepType::Normalize(_) => "Normalize",
             StepType::LandMass(_) => "LandMass",
             StepType::MudSlide(_) => "MudSlide",
@@ -72,6 +75,9 @@ impl StepType {
             StepType::MidPoint(_) => "Use mid point displacement to generate a mountainous land",
             StepType::Ridged(_) => {
                 "Add ridged multifractal noise: sharp crests and alpine peaks, optionally folded"
+            }
+            StepType::Plateau(_) => {
+                "Cut the terrain into flat stepped levels: mesas, buttes, tablelands"
             }
             StepType::Normalize(_) => "Scale the terrain back to the 0.0-1.0 range",
             StepType::LandMass(_) => {
@@ -95,6 +101,7 @@ impl StepType {
             StepType::Fbm(conf) => render_fbm(ui, conf),
             StepType::MidPoint(conf) => render_mid_point(ui, conf),
             StepType::Ridged(conf) => render_ridged(ui, conf),
+            StepType::Plateau(conf) => render_plateau(ui, conf),
             StepType::Normalize(_) => (),
             StepType::LandMass(conf) => render_landmass(ui, conf),
             StepType::MudSlide(conf) => render_mudslide(ui, conf),
@@ -136,6 +143,15 @@ impl StepType {
                     }
                 }
                 None => gen_ridged(seed, size, h, conf, progress),
+            },
+            StepType::Plateau(conf) => match backend.gpu() {
+                Some(gpu) => {
+                    if let Err(e) = gen_plateau_gpu(gpu, seed, size, h, conf, progress) {
+                        crate::log(&format!("gpu=>plateau fell back to the CPU: {}", e.0));
+                        gen_plateau(seed, size, h, conf, progress)
+                    }
+                }
+                None => gen_plateau(seed, size, h, conf, progress),
             },
             StepType::Normalize(conf) => gen_normalize(h, conf),
             StepType::LandMass(conf) => gen_landmass(size, h, conf, progress),
@@ -320,6 +336,7 @@ mod tests {
                 "Ridged",
                 "Normalize",
                 "LandMass",
+                "Plateau",
                 "ThermalErosion",
                 "FluvialErosion",
                 "Island"

@@ -11,6 +11,7 @@ mod mudslide;
 pub mod noise_field;
 mod normalize;
 mod par_rows;
+mod plateau;
 mod resample;
 mod ridged;
 mod thermal_erosion;
@@ -29,6 +30,8 @@ pub use mid_point::{gen_mid_point, render_mid_point, MidPointConf};
 pub use mudslide::{gen_mudslide, render_mudslide, MudSlideConf};
 pub use normalize::{gen_normalize, NormalizeConf};
 pub use par_rows::par_rows;
+pub use plateau::{gen_plateau, render_plateau, PlateauConf};
+pub(crate) use plateau::JITTER_OCTAVES as PLATEAU_JITTER_OCTAVES;
 pub use resample::{add_upsampled, bilinear, downsample, work_size};
 pub use ridged::{gen_ridged, render_ridged, RidgedConf};
 pub(crate) use ridged::{

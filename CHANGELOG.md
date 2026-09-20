@@ -5,6 +5,7 @@
 ### Added
 
 - Ridged generator: ridged multifractal noise with sharp crests, the mountain counterpart of Fbm; fold bends the ranges.
+- Plateau generator: cuts the terrain into flat stepped levels with wandering edges (mesas, buttes, tablelands); CPU + GPU.
 
 ## [0.5.2] - 2026-09-20
 

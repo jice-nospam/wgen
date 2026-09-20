@@ -258,6 +258,24 @@ mod tests {
                     .unwrap()
                 });
             }
+            let mut h = base.clone();
+            time(&format!("plateau cpu {side}"), || {
+                gen_plateau(1, size, &mut h, &PlateauConf::default(), &mut p)
+            });
+            if let Some(gpu) = crate::gpu::test_context() {
+                let mut h = base.clone();
+                time(&format!("plateau gpu {side}"), || {
+                    crate::gpu::plateau::gen_plateau_gpu(
+                        &gpu,
+                        1,
+                        size,
+                        &mut h,
+                        &PlateauConf::default(),
+                        &mut p,
+                    )
+                    .unwrap()
+                });
+            }
             normalize(&mut base, 0.0, 1.0);
             let mut h = vec![0.0; side * side];
             time(&format!("hills {side}"), || {

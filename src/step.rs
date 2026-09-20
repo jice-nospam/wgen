@@ -31,17 +31,17 @@ pub enum StepType {
 }
 
 impl StepType {
-    /// every generator with its default configuration, in dropdown order
-    pub fn all() -> [StepType; 10] {
+    /// the generators the dropdown offers, with their default configuration, in dropdown
+    /// order. `MudSlide` and `WaterErosion` are legacy: they only exist in old `.wgen` files
+    /// and still load and run, but a new step cannot be one
+    pub fn all() -> [StepType; 8] {
         [
             StepType::Hills(HillsConf::default()),
             StepType::Fbm(FbmConf::default()),
             StepType::MidPoint(MidPointConf::default()),
             StepType::Normalize(NormalizeConf::default()),
             StepType::LandMass(LandMassConf::default()),
-            StepType::MudSlide(MudSlideConf::default()),
             StepType::ThermalErosion(ThermalErosionConf::default()),
-            StepType::WaterErosion(WaterErosionConf::default()),
             StepType::FluvialErosion(FluvialErosionConf::default()),
             StepType::Island(IslandConf::default()),
         ]
@@ -71,11 +71,11 @@ impl StepType {
             StepType::LandMass(_) => {
                 "Scale the terrain so that only a proportion of land is above water level"
             }
-            StepType::MudSlide(_) => {
-                "Smooth the terrain (its strength depends on the preview size; prefer ThermalErosion)"
-            }
+            StepType::MudSlide(_) => "Legacy: smooth the terrain (superseded by ThermalErosion)",
             StepType::ThermalErosion(_) => "Crumble slopes steeper than the talus into scree",
-            StepType::WaterErosion(_) => "Simulate rain falling and carving rivers",
+            StepType::WaterErosion(_) => {
+                "Legacy: simulate rain drops carving rivers (superseded by FluvialErosion)"
+            }
             StepType::FluvialErosion(_) => {
                 "Carve a dendritic river network with the stream-power law (grid based, pairs with ThermalErosion)"
             }
@@ -298,12 +298,25 @@ mod tests {
                 "MidPoint",
                 "Normalize",
                 "LandMass",
-                "MudSlide",
                 "ThermalErosion",
-                "WaterErosion",
                 "FluvialErosion",
                 "Island"
             ]
         );
+    }
+
+    #[test]
+    fn legacy_generators_are_not_offered() {
+        let names: Vec<&str> = StepType::all().iter().map(|t| t.name()).collect();
+        assert!(!names.contains(&"MudSlide"));
+        assert!(!names.contains(&"WaterErosion"));
+    }
+
+    #[test]
+    fn legacy_generators_still_load() {
+        let old = r#"MudSlide((iterations:5.0,max_erosion_alt:0.9,strength:0.4,water_level:0.12))"#;
+        assert!(matches!(ron::from_str::<StepType>(old), Ok(StepType::MudSlide(_))));
+        let old = ron::to_string(&StepType::WaterErosion(WaterErosionConf::default())).unwrap();
+        assert!(matches!(ron::from_str::<StepType>(&old), Ok(StepType::WaterErosion(_))));
     }
 }

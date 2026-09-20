@@ -13,6 +13,7 @@
 
 ### Changed
 
+- MudSlide and WaterErosion are no longer offered in the generator dropdown (ThermalErosion and FluvialErosion supersede them); existing projects that use them still load and run
 - auto 3D preview refresh during mask editing
 - mask editor drawn with egui only; the brush is a red outline (extent + falloff) instead of a filled disc
 - replaced eframe + three-d with Bevy 0.19 + bevy_egui (egui 0.36)

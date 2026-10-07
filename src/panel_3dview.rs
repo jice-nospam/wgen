@@ -1,6 +1,10 @@
 use egui::PointerButton;
 
 const PANEL3D_SIZE: f32 = 256.0;
+/// zoom at which the vertical fov `90 - zoom * 0.8` reaches its 1 degree minimum
+const ZOOM_MAX: f32 = 111.25;
+/// zoom units per scroll point (one wheel notch is 40 points)
+const WHEEL_ZOOM_SPEED: f32 = 0.1;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Panel3dViewConf {
@@ -114,7 +118,7 @@ impl Panel3dView {
     }
 
     /// allocates the square, paints the scene image over it and turns drags into orbit
-    /// (left), pan (right) and zoom (middle)
+    /// (left), pan (right) and zoom (middle drag, wheel)
     fn render_3dview(&mut self, ui: &mut egui::Ui, texture: egui::TextureId) -> egui::Rect {
         let (rect, response) =
             ui.allocate_exact_size(egui::Vec2::splat(self.size), egui::Sense::drag());
@@ -142,8 +146,40 @@ impl Panel3dView {
             self.conf.pan[1] += response.drag_delta().y * 0.5;
             self.conf.pan[1] = self.conf.pan[1].clamp(0.0, 140.0);
         } else if mbutton {
-            self.conf.zoom += response.drag_delta().y * 0.15;
+            self.conf.zoom = zoom_by(self.conf.zoom, response.drag_delta().y * 0.15);
+        }
+        if response.hovered() {
+            let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
+            if scroll_y != 0.0 {
+                self.conf.zoom = zoom_by(self.conf.zoom, scroll_y * WHEEL_ZOOM_SPEED);
+            }
         }
         rect
+    }
+}
+
+/// adds `delta` to `zoom`, kept within the range where the fov formula is not clamped
+fn zoom_by(zoom: f32, delta: f32) -> f32 {
+    (zoom + delta).clamp(0.0, ZOOM_MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zoom_by_adds_delta() {
+        assert_eq!(zoom_by(60.0, 4.0), 64.0);
+    }
+
+    #[test]
+    fn zoom_by_clamps_to_range() {
+        assert_eq!(zoom_by(60.0, -1000.0), 0.0);
+        assert_eq!(zoom_by(60.0, 1000.0), ZOOM_MAX);
+    }
+
+    #[test]
+    fn zoom_max_hits_min_fov() {
+        assert_eq!(90.0 - ZOOM_MAX * 0.8, 1.0);
     }
 }

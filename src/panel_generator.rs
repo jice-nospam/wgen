@@ -267,7 +267,9 @@ impl PanelGenerator {
             egui::ComboBox::from_label("")
                 .selected_text(format!("{}", self.cur_step))
                 .show_ui(ui, |ui| {
-                    for typ in StepType::all() {
+                    let mut types: Vec<StepType> = StepType::all().into_iter().collect();
+                    types.sort_by_key(|typ| typ.name());
+                    for typ in types {
                         let (name, desc) = (typ.name(), typ.description());
                         ui.selectable_value(
                             &mut self.cur_step,

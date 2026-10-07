@@ -62,7 +62,7 @@ You have a 2D preview displaying the heightmap (at current selected step in the 
 You also have a 3D preview displaying the final 3D mesh, lit by a sun that casts shadows. The mesh uses the same resolution as the 2D preview.
 You can change the view by dragging the mouse cursor in the view :
 - rotate the terrain with left button
-- zoom with middle button
+- zoom with middle button or the mouse wheel
 - pan with right button
 
 You can also stretch the terrain vertically (`Height scale %`), display a water plane with configurable height, and turn on a physically based sky (`Show skybox`).

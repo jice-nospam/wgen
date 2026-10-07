@@ -3,11 +3,12 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::generators::{
-    gen_fbm, gen_fluvial_erosion, gen_hills, gen_island, gen_landmass, gen_mid_point, gen_mudslide,
-    gen_normalize, gen_plateau, gen_ridged, gen_thermal_erosion, gen_water_erosion, render_fbm,
-    render_fluvial_erosion, render_hills, render_island, render_landmass, render_mid_point,
-    render_mudslide, render_normalize, render_plateau, render_ridged, render_thermal_erosion,
-    render_water_erosion, FbmConf, FluvialErosionConf, HillsConf, IslandConf, LandMassConf,
+    gen_bend, gen_fbm, gen_fluvial_erosion, gen_hills, gen_island, gen_landmass, gen_lift,
+    gen_mid_point, gen_mudslide, gen_normalize, gen_plateau, gen_ridged, gen_thermal_erosion,
+    gen_water_erosion, render_bend, render_fbm, render_fluvial_erosion, render_hills,
+    render_island, render_landmass, render_lift, render_mid_point, render_mudslide,
+    render_normalize, render_plateau, render_ridged, render_thermal_erosion, render_water_erosion,
+    BendConf, FbmConf, FluvialErosionConf, HillsConf, IslandConf, LandMassConf, LiftConf,
     MidPointConf, MudSlideConf, NormalizeConf, PlateauConf, Progress, RidgedConf,
     ThermalErosionConf, WaterErosionConf,
 };
@@ -31,19 +32,23 @@ pub enum StepType {
     MidPoint(MidPointConf),
     Ridged(RidgedConf),
     Plateau(PlateauConf),
+    Lift(LiftConf),
+    Bend(BendConf),
 }
 
 impl StepType {
     /// the generators the dropdown offers, with their default configuration, in dropdown
     /// order. `MudSlide` and `WaterErosion` are legacy: they only exist in old `.wgen` files
     /// and still load and run, but a new step cannot be one
-    pub fn all() -> [StepType; 10] {
+    pub fn all() -> [StepType; 12] {
         [
             StepType::Hills(HillsConf::default()),
             StepType::Fbm(FbmConf::default()),
             StepType::MidPoint(MidPointConf::default()),
             StepType::Ridged(RidgedConf::default()),
             StepType::Normalize(NormalizeConf::default()),
+            StepType::Lift(LiftConf::default()),
+            StepType::Bend(BendConf::default()),
             StepType::LandMass(LandMassConf::default()),
             StepType::Plateau(PlateauConf::default()),
             StepType::ThermalErosion(ThermalErosionConf::default()),
@@ -77,6 +82,8 @@ impl StepType {
             StepType::WaterErosion(_) => "WaterErosion",
             StepType::FluvialErosion(_) => "FluvialErosion",
             StepType::Island(_) => "Island",
+            StepType::Lift(_) => "Lift",
+            StepType::Bend(_) => "Bend",
         }
     }
     /// the dropdown hover text
@@ -104,6 +111,10 @@ impl StepType {
                 "Carve a dendritic river network with the stream-power law (grid based, pairs with ThermalErosion)"
             }
             StepType::Island(_) => "Lower height on the map borders",
+            StepType::Lift(_) => "Raise or lower the whole terrain by a fixed height",
+            StepType::Bend(_) => {
+                "Push the whole terrain sideways along a noise field, so drawn outlines wander like natural ones"
+            }
         }
     }
     /// the parameter widgets of this step
@@ -121,6 +132,8 @@ impl StepType {
             StepType::WaterErosion(conf) => render_water_erosion(ui, conf),
             StepType::FluvialErosion(conf) => render_fluvial_erosion(ui, conf),
             StepType::Island(conf) => render_island(ui, conf),
+            StepType::Lift(conf) => render_lift(ui, conf),
+            StepType::Bend(conf) => render_bend(ui, conf),
         }
     }
     /// runs the generator on `h`, which holds the previous step's output; a cancelled
@@ -196,6 +209,8 @@ impl StepType {
                 None => gen_fluvial_erosion(size, h, conf, water_level, progress),
             },
             StepType::Island(conf) => gen_island(size, h, conf, progress),
+            StepType::Lift(conf) => gen_lift(size, h, conf, progress),
+            StepType::Bend(conf) => gen_bend(seed, size, h, conf, progress),
         }
     }
 }
@@ -366,6 +381,8 @@ mod tests {
                 "MidPoint",
                 "Ridged",
                 "Normalize",
+                "Lift",
+                "Bend",
                 "LandMass",
                 "Plateau",
                 "ThermalErosion",

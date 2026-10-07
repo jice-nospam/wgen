@@ -1,3 +1,4 @@
+mod bend;
 #[cfg(test)]
 pub(crate) mod calib;
 mod fbm;
@@ -6,6 +7,7 @@ mod fluvial_erosion;
 mod hills;
 mod island;
 mod landmass;
+mod lift;
 mod mid_point;
 mod mudslide;
 pub mod noise_field;
@@ -19,6 +21,7 @@ mod water_erosion;
 
 use std::sync::mpsc::Sender;
 
+pub use bend::{gen_bend, render_bend, BendConf};
 pub use fbm::{gen_fbm, render_fbm, FbmConf};
 pub use flow::{receiver_distance, FlowNet};
 pub(crate) use fluvial_erosion::{fluvial_plan, FluvialParams, HILLSLOPE_AREA};
@@ -26,6 +29,7 @@ pub use fluvial_erosion::{gen_fluvial_erosion, render_fluvial_erosion, FluvialEr
 pub use hills::{gen_hills, render_hills, HillsConf};
 pub use island::{gen_island, render_island, IslandConf};
 pub use landmass::{gen_landmass, render_landmass, LandMassConf};
+pub use lift::{gen_lift, render_lift, LiftConf};
 pub use mid_point::{gen_mid_point, render_mid_point, MidPointConf};
 pub use mudslide::{gen_mudslide, render_mudslide, MudSlideConf};
 pub use normalize::{gen_normalize, render_normalize, NormalizeConf};

@@ -25,14 +25,14 @@ pub fn render_normalize(ui: &mut egui::Ui, conf: &mut NormalizeConf) {
         ui.add(
             egui::DragValue::new(&mut conf.min)
                 .speed(0.01)
-                .range(0.0..=conf.max),
+                .range(f32::MIN..=conf.max),
         );
         ui.label("max")
             .on_hover_text("Height of the highest point after the step");
         ui.add(
             egui::DragValue::new(&mut conf.max)
                 .speed(0.01)
-                .range(conf.min..=1.0),
+                .range(conf.min..=f32::MAX),
         );
     });
 }

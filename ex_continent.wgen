@@ -1,6 +1,7 @@
 (
-    version: "0.6.0",
+    version: "0.7.0",
     seed: 3735928559,
+    water_level: Some(0.12),
     steps: [(
         disabled: false,
         mask: None,
@@ -77,7 +78,6 @@
         mask_feather: 0.0,
         typ: LandMass((
             land_proportion: 0.6,
-            water_level: 0.12,
             plain_factor: 1.71,
         )),
     ), (
@@ -97,7 +97,6 @@
             talus: 0.2,
             uplift: 0.0,
             iterations: 50,
-            water_level: 0.0,
             work_res: 512,
         )),
     )],

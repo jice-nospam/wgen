@@ -9,7 +9,6 @@ use super::{add_upsampled, downsample, work_size, Progress, DIRX, DIRY};
 const DEFAULT_TALUS: f32 = 0.5;
 const DEFAULT_STRENGTH: f32 = 0.5;
 const DEFAULT_ITERATIONS: u32 = 50;
-const DEFAULT_WATER_LEVEL: f32 = 0.0;
 const DEFAULT_WORK_RES: u32 = 512;
 /// the map side the parameters are expressed for
 const REFERENCE_RES: f32 = 512.0;
@@ -28,8 +27,14 @@ pub struct ThermalErosionConf {
     pub strength: f32,
     /// passes on a `REFERENCE_RES` map
     pub iterations: u32,
-    /// cells below this height do not crumble
-    pub water_level: f32,
+    /// the per-step water level of files older than the project's; read, never written
+    #[serde(
+        rename = "water_level",
+        default,
+        skip_serializing,
+        deserialize_with = "super::legacy_water_level"
+    )]
+    pub(crate) legacy_water_level: Option<f32>,
     /// longest side of the grid the passes run on
     pub work_res: u32,
 }
@@ -40,7 +45,7 @@ impl Default for ThermalErosionConf {
             talus: DEFAULT_TALUS,
             strength: DEFAULT_STRENGTH,
             iterations: DEFAULT_ITERATIONS,
-            water_level: DEFAULT_WATER_LEVEL,
+            legacy_water_level: None,
             work_res: DEFAULT_WORK_RES,
         }
     }
@@ -75,14 +80,6 @@ pub fn render_thermal_erosion(ui: &mut egui::Ui, conf: &mut ThermalErosionConf) 
 
 fn render_thermal_row(ui: &mut egui::Ui, conf: &mut ThermalErosionConf) {
     ui.horizontal(|ui| {
-        ui.label("water level").on_hover_text(
-            "Land below this height does not crumble, but still catches what slides down",
-        );
-        ui.add(
-            egui::DragValue::new(&mut conf.water_level)
-                .speed(0.01)
-                .range(-10.0..=10.0),
-        );
         ui.label("resolution")
             .on_hover_text("Level of detail the erosion works at: higher = finer, much slower");
         egui::ComboBox::from_id_salt("thermal_work_res")
@@ -112,14 +109,15 @@ impl ThermalParams {
     /// `talus` maps to the threshold through `TALUS_MAX * (1 - talus)²` : the square spreads the
     /// visible part of the effect (thresholds below a stock map's median slope) over most of the
     /// 0..1 range instead of its last tenth
-    pub(crate) fn new(conf: &ThermalErosionConf, scale: f32) -> Self {
+    /// cells below `water_level` do not crumble
+    pub(crate) fn new(conf: &ThermalErosionConf, water_level: f32, scale: f32) -> Self {
         let threshold = TALUS_MAX * (1.0 - conf.talus).powi(2) / scale;
         Self {
             threshold,
             diag_threshold: threshold * SQRT_2,
             strength: conf.strength,
             passes: ((conf.iterations as f32 * scale).ceil() as usize).max(1),
-            water_level: conf.water_level,
+            water_level,
         }
     }
 }
@@ -128,19 +126,22 @@ impl ThermalParams {
 pub(crate) fn thermal_plan(
     size: (usize, usize),
     conf: &ThermalErosionConf,
+    water_level: f32,
 ) -> ((usize, usize), ThermalParams) {
     let work = work_size(size, conf.work_res as usize);
     let scale = work.0.max(work.1) as f32 / REFERENCE_RES;
-    (work, ThermalParams::new(conf, scale))
+    (work, ThermalParams::new(conf, water_level, scale))
 }
 
+/// cells below `water_level` do not crumble, but still catch what slides down
 pub fn gen_thermal_erosion(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &ThermalErosionConf,
+    water_level: f32,
     progress: &mut Progress,
 ) {
-    let (work, params) = thermal_plan(size, conf);
+    let (work, params) = thermal_plan(size, conf, water_level);
     if work == size {
         slide_passes(size, hmap, &params, progress);
         return;
@@ -275,7 +276,13 @@ mod tests {
 
     fn erode(size: (usize, usize), hmap: &[f32], conf: &ThermalErosionConf) -> Vec<f32> {
         let mut out = hmap.to_vec();
-        gen_thermal_erosion(size, &mut out, conf, &mut Progress::headless());
+        gen_thermal_erosion(
+            size,
+            &mut out,
+            conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        );
         out
     }
 
@@ -348,11 +355,11 @@ mod tests {
     #[test]
     fn params_scale_with_the_working_grid() {
         let conf = ThermalErosionConf::default();
-        let full = ThermalParams::new(&conf, 1.0);
+        let full = ThermalParams::new(&conf, conf.legacy_water_level.unwrap_or(0.0), 1.0);
         assert_eq!(full.passes, conf.iterations as usize);
         let reference = TALUS_MAX * (1.0 - conf.talus).powi(2);
         assert_eq!(full.threshold, reference);
-        let quarter = ThermalParams::new(&conf, 0.25);
+        let quarter = ThermalParams::new(&conf, conf.legacy_water_level.unwrap_or(0.0), 0.25);
         assert_eq!(
             quarter.passes,
             (conf.iterations as f32 / 4.0).ceil() as usize
@@ -363,12 +370,23 @@ mod tests {
             talus: 0.0,
             ..Default::default()
         };
-        assert_eq!(ThermalParams::new(&off, 1.0).threshold, TALUS_MAX);
+        assert_eq!(
+            ThermalParams::new(&off, off.legacy_water_level.unwrap_or(0.0), 1.0).threshold,
+            TALUS_MAX
+        );
         let full_impact = ThermalErosionConf {
             talus: 1.0,
             ..Default::default()
         };
-        assert_eq!(ThermalParams::new(&full_impact, 1.0).threshold, 0.0);
+        assert_eq!(
+            ThermalParams::new(
+                &full_impact,
+                full_impact.legacy_water_level.unwrap_or(0.0),
+                1.0
+            )
+            .threshold,
+            0.0
+        );
     }
 
     #[test]
@@ -418,6 +436,7 @@ mod tests {
             (16, 16),
             &mut cancelled,
             &conf16(),
+            conf16().legacy_water_level.unwrap_or(0.0),
             &mut Progress::preview(tx, 1.0, || true),
         );
         assert_eq!(cancelled, input);

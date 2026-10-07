@@ -5,9 +5,10 @@ use std::time::Instant;
 
 use crate::generators::{get_min_max, Progress};
 use crate::gpu::{Backend, GpuContext};
-use crate::mask::feather_mask;
+use crate::mask::{feather_mask, mask_side};
+use crate::project::DEFAULT_WATER_LEVEL;
 pub use crate::step::{Step, StepType};
-use crate::{log, panic_message, ThreadMessage, Waker, MASK_SIZE};
+use crate::{log, panic_message, ThreadMessage, Waker};
 
 #[derive(Debug)]
 /// commands sent by the main thread to the world generator thread
@@ -22,6 +23,8 @@ pub enum WorldGenCommand {
     GetStepMap(u64, usize),
     /// change the random number generator seed
     SetSeed(u64),
+    /// change the project's sea level, in raw height units
+    SetWaterLevel(f32),
     /// remove all steps
     Clear,
     /// cancel queued ExecuteStep commands from a specific step; the running step stops on its own
@@ -85,6 +88,8 @@ pub struct WorldGenerator {
     hmap: Vec<HMap>,
     /// where the generators with a GPU twin run
     backend: Backend,
+    /// the project's sea level, in raw height units
+    water_level: f32,
 }
 
 struct InnerStep {
@@ -105,6 +110,7 @@ fn do_command(
     match msg {
         WorldGenCommand::Clear => wgen.clear(),
         WorldGenCommand::SetSeed(new_seed) => wgen.seed = new_seed,
+        WorldGenCommand::SetWaterLevel(level) => wgen.set_water_level(level),
         WorldGenCommand::ExecuteStep(generation, index, step, live, min_progress_step) => {
             steps.push(InnerStep {
                 generation,
@@ -223,10 +229,14 @@ impl WorldGenerator {
             world_size,
             hmap: Vec::new(),
             backend: Backend::Cpu,
+            water_level: DEFAULT_WATER_LEVEL,
         }
     }
     pub fn set_backend(&mut self, backend: Backend) {
         self.backend = backend;
+    }
+    pub fn set_water_level(&mut self, water_level: f32) {
+        self.water_level = water_level;
     }
     pub fn get_export_map(&self) -> ExportMap {
         self.get_step_export_map(if self.hmap.is_empty() {
@@ -234,6 +244,14 @@ impl WorldGenerator {
         } else {
             self.hmap.len() - 1
         })
+    }
+    /// the last step's map, borrowed; empty before any step ran
+    pub fn final_map(&self) -> &[f32] {
+        self.hmap.last().map_or(&[], |m| &m.h)
+    }
+    #[cfg(test)]
+    pub fn push_map(&mut self, h: Vec<f32>) {
+        self.hmap.push(HMap { h });
     }
     pub fn get_step_export_map(&self, step: usize) -> ExportMap {
         ExportMap {
@@ -314,11 +332,12 @@ impl WorldGenerator {
     fn run_step(&self, step: &Step, h: &mut [f32], prev: Option<&[f32]>, progress: &mut Progress) {
         let (seed, size) = (self.seed, self.world_size);
         if !step.disabled {
-            step.typ.run(seed, size, h, progress, &self.backend);
+            step.typ
+                .run(seed, size, h, progress, &self.backend, self.water_level);
         }
         if let Some(ref mask) = step.mask {
             let mask = feather_mask(mask, step.mask_feather);
-            apply_mask(size, &mask, prev, h);
+            apply_mask(size, &mask, step.mask_smooth, prev, h);
         }
     }
 
@@ -331,7 +350,16 @@ impl WorldGenerator {
     }
 }
 
-fn apply_mask(world_size: (usize, usize), mask: &[f32], prev: Option<&[f32]>, h: &mut [f32]) {
+/// blends `h` with `prev` (or with its own minimum) by the mask, sampled at the mask's own
+/// side, bilinearly or, with `smooth`, by a uniform cubic B-spline
+fn apply_mask(
+    world_size: (usize, usize),
+    mask: &[f32],
+    smooth: bool,
+    prev: Option<&[f32]>,
+    h: &mut [f32],
+) {
+    let n = mask_side(mask);
     let mut off = 0;
     let (min, _) = if prev.is_none() {
         get_min_max(h)
@@ -339,24 +367,14 @@ fn apply_mask(world_size: (usize, usize), mask: &[f32], prev: Option<&[f32]>, h:
         (0.0, 0.0)
     };
     for y in 0..world_size.1 {
-        let myf = (y * MASK_SIZE) as f32 / world_size.1 as f32;
-        let my = myf as usize;
-        let yalpha = myf.fract();
+        let myf = (y * n) as f32 / world_size.1 as f32;
         for x in 0..world_size.0 {
-            let mxf = (x * MASK_SIZE) as f32 / world_size.0 as f32;
-            let mx = mxf as usize;
-            let xalpha = mxf.fract();
-            let mut mask_value = mask[mx + my * MASK_SIZE];
-            if mx + 1 < MASK_SIZE {
-                mask_value = (1.0 - xalpha) * mask_value + xalpha * mask[mx + 1 + my * MASK_SIZE];
-                if my + 1 < MASK_SIZE {
-                    let bottom_left_mask = mask[mx + (my + 1) * MASK_SIZE];
-                    let bottom_right_mask = mask[mx + 1 + (my + 1) * MASK_SIZE];
-                    let bottom_mask =
-                        (1.0 - xalpha) * bottom_left_mask + xalpha * bottom_right_mask;
-                    mask_value = (1.0 - yalpha) * mask_value + yalpha * bottom_mask;
-                }
-            }
+            let mxf = (x * n) as f32 / world_size.0 as f32;
+            let mask_value = if smooth {
+                mask_bspline(mask, n, mxf, myf)
+            } else {
+                mask_bilinear(mask, n, mxf, myf)
+            };
             if let Some(prev) = prev {
                 h[off] = (1.0 - mask_value) * prev[off] + mask_value * h[off];
             } else {
@@ -367,10 +385,56 @@ fn apply_mask(world_size: (usize, usize), mask: &[f32], prev: Option<&[f32]>, h:
     }
 }
 
+/// the mask at mask position `(mxf, myf)` by straight-line blending of the 2 × 2 cells
+fn mask_bilinear(mask: &[f32], n: usize, mxf: f32, myf: f32) -> f32 {
+    let (mx, my) = (mxf as usize, myf as usize);
+    let (xalpha, yalpha) = (mxf.fract(), myf.fract());
+    let mut mask_value = mask[mx + my * n];
+    if mx + 1 < n {
+        mask_value = (1.0 - xalpha) * mask_value + xalpha * mask[mx + 1 + my * n];
+        if my + 1 < n {
+            let bottom_left_mask = mask[mx + (my + 1) * n];
+            let bottom_right_mask = mask[mx + 1 + (my + 1) * n];
+            let bottom_mask = (1.0 - xalpha) * bottom_left_mask + xalpha * bottom_right_mask;
+            mask_value = (1.0 - yalpha) * mask_value + yalpha * bottom_mask;
+        }
+    }
+    mask_value
+}
+
+/// the uniform cubic B-spline weights of the cells `i - 1 … i + 2` at fraction `t`
+fn bspline_weights(t: f32) -> [f32; 4] {
+    let s = 1.0 - t;
+    [
+        s * s * s / 6.0,
+        (3.0 * t * t * t - 6.0 * t * t + 4.0) / 6.0,
+        (-3.0 * t * t * t + 3.0 * t * t + 3.0 * t + 1.0) / 6.0,
+        t * t * t / 6.0,
+    ]
+}
+
+/// the mask at mask position `(mxf, myf)` by B-spline weights over the 4 × 4 cells round it,
+/// indices clamped at the mask's edge
+fn mask_bspline(mask: &[f32], n: usize, mxf: f32, myf: f32) -> f32 {
+    let (mx, my) = (mxf as i64, myf as i64);
+    let (wx, wy) = (bspline_weights(mxf.fract()), bspline_weights(myf.fract()));
+    let last = n as i64 - 1;
+    let mut value = 0.0;
+    for (j, wyj) in wy.iter().enumerate() {
+        let cy = (my + j as i64 - 1).clamp(0, last) as usize;
+        for (i, wxi) in wx.iter().enumerate() {
+            let cx = (mx + i as i64 - 1).clamp(0, last) as usize;
+            value += wyj * wxi * mask[cx + cy * n];
+        }
+    }
+    value
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::generators::{FbmConf, HillsConf, NormalizeConf};
+    use crate::MASK_SIZE;
     use std::sync::mpsc;
 
     fn masked_stack() -> Vec<Step> {
@@ -483,6 +547,40 @@ mod tests {
     }
 
     #[test]
+    fn ridged_keeps_the_previous_map_where_its_mask_is_zero() {
+        let size = (MASK_SIZE, MASK_SIZE);
+        let mut backends = vec![Backend::Cpu];
+        if let Some(gpu) = crate::gpu::test_context() {
+            backends.push(Backend::Gpu(gpu));
+        }
+        for backend in backends {
+            let mut generator = WorldGenerator::new(7, size);
+            generator.set_backend(backend);
+            let steps = [
+                Step {
+                    typ: StepType::Fbm(FbmConf::default()),
+                    ..Default::default()
+                },
+                Step {
+                    typ: StepType::Ridged(crate::generators::RidgedConf::default()),
+                    mask: Some(crate::mask::tests::half_black_mask()),
+                    ..Default::default()
+                },
+            ];
+            for (i, step) in steps.iter().enumerate() {
+                generator.execute_step(i, step, &mut Progress::headless());
+            }
+            let (before, after) = (&generator.hmap[0].h, &generator.hmap[1].h);
+            let mask = crate::mask::tests::half_black_mask();
+            for (i, m) in mask.iter().enumerate() {
+                if *m == 0.0 {
+                    assert_eq!(before[i], after[i], "cell {i}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn run_step_feathers_the_mask() {
         // one map pixel per mask cell, so apply_mask samples the mask exactly
         let size = (MASK_SIZE, MASK_SIZE);
@@ -493,6 +591,7 @@ mod tests {
                 disabled: true,
                 mask: Some(crate::mask::tests::half_black_mask()),
                 mask_feather: feather,
+                mask_smooth: false,
                 typ: StepType::Normalize(NormalizeConf::default()),
             };
             let mut h = vec![1.0; MASK_SIZE * MASK_SIZE];
@@ -508,6 +607,25 @@ mod tests {
     }
 
     #[test]
+    fn apply_mask_samples_by_the_mask_side() {
+        // a 32² mask on a 64² map equals the 64² mask it upsamples to, applied cell for cell;
+        // blending ones over zeros writes the sampled mask itself
+        let small: Vec<f32> = (0..32 * 32)
+            .map(|i| ((i * 37) % 11) as f32 / 10.0)
+            .collect();
+        let mut big = vec![1.0; 64 * 64];
+        apply_mask((64, 64), &small, false, Some(&vec![0.0; 64 * 64]), &mut big);
+        let mut via_small: Vec<f32> = (0..64 * 64).map(|i| (i % 13) as f32).collect();
+        let mut via_big = via_small.clone();
+        let prev: Vec<f32> = (0..64 * 64).map(|i| (i % 5) as f32).collect();
+        apply_mask((64, 64), &small, false, Some(&prev), &mut via_small);
+        apply_mask((64, 64), &big, false, Some(&prev), &mut via_big);
+        for (a, b) in via_small.iter().zip(&via_big) {
+            assert!((a - b).abs() < 1e-5, "{a} vs {b}");
+        }
+    }
+
+    #[test]
     fn apply_mask_handles_non_square_map() {
         // mask: top half fully applied, bottom half fully masked out
         let mut mask = vec![0.0; MASK_SIZE * MASK_SIZE];
@@ -517,7 +635,7 @@ mod tests {
         for &(w, h) in &[(16usize, 32usize), (32, 16), (32, 32)] {
             let mut hmap: Vec<f32> = (0..w * h).map(|i| 1.0 + (i % 7) as f32).collect();
             let expected: Vec<f32> = hmap.iter().map(|v| v - 1.0).collect();
-            apply_mask((w, h), &mask, None, &mut hmap);
+            apply_mask((w, h), &mask, false, None, &mut hmap);
             // first row is fully inside the white half: height shifted down by min
             assert_eq!(&hmap[..w], &expected[..w], "top row at {w}x{h}");
             // last row is fully inside the black half: flattened to min
@@ -527,5 +645,53 @@ mod tests {
                 &hmap[w * (h - 1)..]
             );
         }
+    }
+
+    #[test]
+    fn smooth_mask_reads_constants_and_ramps() {
+        let n = 16;
+        let constant = vec![0.4; n * n];
+        assert!((mask_bspline(&constant, n, 7.3, 2.9) - 0.4).abs() < 1e-6);
+        let ramp: Vec<f32> = (0..n * n).map(|i| (i % n) as f32 / n as f32).collect();
+        for x in [3.0f32, 5.25, 8.5, 11.75] {
+            let v = mask_bspline(&ramp, n, x, 6.4);
+            assert!((v - x / n as f32).abs() < 1e-5, "{x}: {v}");
+        }
+    }
+
+    #[test]
+    fn smooth_mask_stays_in_range_without_creases() {
+        let n = 16;
+        let mask: Vec<f32> = (0..n * n)
+            .map(|i| if (i % n) * 3 % 7 < 3 { 1.0 } else { 0.0 })
+            .collect();
+        for k in 0..400 {
+            let x = k as f32 * 0.04;
+            let v = mask_bspline(&mask, n, x, 5.5);
+            assert!((-1e-6..=1.0 + 1e-6).contains(&v), "{x}: {v}");
+        }
+        // slopes on both sides of the cell boundary x = 6
+        let e = 1e-3;
+        let slope = |f: &dyn Fn(f32) -> f32, a: f32| (f(a + e) - f(a)) / e;
+        let smooth = |x: f32| mask_bspline(&mask, n, x, 5.5);
+        let linear = |x: f32| mask_bilinear(&mask, n, x, 5.5);
+        let (sl, sr) = (slope(&smooth, 6.0 - e), slope(&smooth, 6.0));
+        assert!((sl - sr).abs() < 1e-2 * sl.abs().max(1.0), "{sl} vs {sr}");
+        let (ll, lr) = (slope(&linear, 6.0 - e), slope(&linear, 6.0));
+        assert!(
+            (ll - lr).abs() > 0.1,
+            "bilinear should crease: {ll} vs {lr}"
+        );
+    }
+
+    #[test]
+    fn step_without_smooth_field_loads_false() {
+        let step = Step::default();
+        let text = ron::to_string(&step)
+            .unwrap()
+            .replace(",mask_smooth:false", "");
+        assert!(!text.contains("mask_smooth"));
+        let loaded: Step = ron::from_str(&text).unwrap();
+        assert!(!loaded.mask_smooth);
     }
 }

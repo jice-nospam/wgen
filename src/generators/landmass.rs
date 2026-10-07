@@ -6,8 +6,14 @@ use super::{normalize, par_rows, Progress};
 pub struct LandMassConf {
     /// what proportion of the map should be above water 0.0-1.0
     pub land_proportion: f32,
-    /// height of the water plane
-    pub water_level: f32,
+    /// the per-step water level of files older than the project's; read, never written
+    #[serde(
+        rename = "water_level",
+        default,
+        skip_serializing,
+        deserialize_with = "super::legacy_water_level"
+    )]
+    pub(crate) legacy_water_level: Option<f32>,
     /// apply h^plain_factor above sea level for sharper mountains and flatter plains
     pub plain_factor: f32,
 }
@@ -16,7 +22,7 @@ impl Default for LandMassConf {
     fn default() -> Self {
         Self {
             land_proportion: 0.6,
-            water_level: 0.12,
+            legacy_water_level: None,
             plain_factor: 2.5,
         }
     }
@@ -28,12 +34,6 @@ pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
             .on_hover_text("Share of the map that ends up above water");
         ui.add(
             egui::DragValue::new(&mut conf.land_proportion)
-                .speed(0.01)
-                .range(0.0..=1.0),
-        );
-        ui.label("water level").on_hover_text("Height of the sea");
-        ui.add(
-            egui::DragValue::new(&mut conf.water_level)
                 .speed(0.01)
                 .range(0.0..=1.0),
         );
@@ -49,12 +49,15 @@ pub fn render_landmass(ui: &mut egui::Ui, conf: &mut LandMassConf) {
     });
 }
 
+/// `water_level` is clamped to 0..1, the range this generator normalises the map to
 pub fn gen_landmass(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &LandMassConf,
+    water_level: f32,
     progress: &mut Progress,
 ) {
+    let sea = water_level.clamp(0.0, 1.0);
     let mut height_count: [usize; 256] = [0; 256];
     normalize(hmap, 0.0, 1.0);
     for y in 0..size.1 {
@@ -77,32 +80,32 @@ pub fn gen_landmass(
     }
     // keep both coefficients finite when every cell ends up on one side of the water level
     let new_water_level = (water_level as f32 / 255.0).clamp(1.0 / 255.0, 254.0 / 255.0);
-    let land_coef = (1.0 - conf.water_level) / (1.0 - new_water_level);
-    let water_coef = conf.water_level / new_water_level;
+    let land_coef = (1.0 - sea) / (1.0 - new_water_level);
+    let water_coef = sea / new_water_level;
     // water level should be raised/lowered to newWaterLevel
     if !par_rows(size.0, hmap, progress, (0.33, 0.66), |_, row| {
-        landmass_row_rescale(row, new_water_level, land_coef, water_coef, conf)
+        landmass_row_rescale(row, new_water_level, land_coef, water_coef, sea)
     }) {
         return;
     }
     // fix land/mountain ratio using h^plain_factor curve above sea level
     par_rows(size.0, hmap, progress, (0.66, 1.0), |_, row| {
-        landmass_row_plain(row, conf)
+        landmass_row_plain(row, conf, sea)
     });
 }
 
-/// moves the found water level to `conf.water_level`, stretching land and sea separately;
-/// both sides meet at `conf.water_level`, so the shoreline has no step
+/// moves the found water level to `sea`, stretching land and sea separately; both sides meet
+/// at `sea`, so the shoreline has no step
 fn landmass_row_rescale(
     row: &mut [f32],
     new_water_level: f32,
     land_coef: f32,
     water_coef: f32,
-    conf: &LandMassConf,
+    sea: f32,
 ) {
     for h in row {
         if *h > new_water_level {
-            *h = conf.water_level + (*h - new_water_level) * land_coef;
+            *h = sea + (*h - new_water_level) * land_coef;
         } else {
             *h *= water_coef;
         }
@@ -110,12 +113,12 @@ fn landmass_row_rescale(
 }
 
 /// applies the h^plain_factor curve above sea level
-fn landmass_row_plain(row: &mut [f32], conf: &LandMassConf) {
+fn landmass_row_plain(row: &mut [f32], conf: &LandMassConf, sea: f32) {
     for h in row {
-        if *h >= conf.water_level {
-            let coef = (*h - conf.water_level) / (1.0 - conf.water_level);
+        if *h >= sea {
+            let coef = (*h - sea) / (1.0 - sea);
             let coef = coef.powf(conf.plain_factor);
-            *h = conf.water_level + coef * (1.0 - conf.water_level);
+            *h = sea + coef * (1.0 - sea);
         }
     }
 }
@@ -132,7 +135,7 @@ mod tests {
                 ..Default::default()
             };
             let mut h: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
-            gen_landmass((8, 8), &mut h, &conf, &mut Progress::headless());
+            gen_landmass((8, 8), &mut h, &conf, 0.12, &mut Progress::headless());
             assert!(
                 h.iter().all(|v| v.is_finite()),
                 "NaN at {}",
@@ -145,11 +148,10 @@ mod tests {
     fn landmass_moves_the_water_level_to_the_requested_share() {
         let conf = LandMassConf {
             land_proportion: 0.5,
-            water_level: 0.12,
             ..Default::default()
         };
         let mut h: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
-        gen_landmass((16, 16), &mut h, &conf, &mut Progress::headless());
+        gen_landmass((16, 16), &mut h, &conf, 0.12, &mut Progress::headless());
         let land = h.iter().filter(|&&v| v >= 0.12).count();
         assert!((120..=136).contains(&land), "{land} land cells");
     }
@@ -159,11 +161,11 @@ mod tests {
     fn landmass_is_continuous_at_the_shoreline() {
         let conf = LandMassConf {
             land_proportion: 0.5,
-            water_level: 0.12,
+            legacy_water_level: None,
             plain_factor: 1.0,
         };
         let mut h: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
-        gen_landmass((16, 16), &mut h, &conf, &mut Progress::headless());
+        gen_landmass((16, 16), &mut h, &conf, 0.12, &mut Progress::headless());
         let max_jump = h
             .windows(2)
             .map(|w| (w[1] - w[0]).abs())
@@ -177,6 +179,12 @@ mod tests {
     fn landmass_conf_ignores_shore_height() {
         let old = "(land_proportion:0.6,water_level:0.12,plain_factor:2.5,shore_height:0.1)";
         let conf: LandMassConf = ron::from_str(old).unwrap();
-        assert_eq!(conf, LandMassConf::default());
+        assert_eq!(
+            conf,
+            LandMassConf {
+                legacy_water_level: Some(0.12),
+                ..Default::default()
+            }
+        );
     }
 }

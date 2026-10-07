@@ -3,7 +3,11 @@ use egui::{
     TextureOptions,
 };
 
-use crate::{mask::feather_mask, panel_2dview::Panel2dAction, MASK_SIZE};
+use crate::{
+    mask::{feather_mask, mask_side},
+    panel_2dview::Panel2dAction,
+    MASK_SIZE,
+};
 
 /// maximum size of the brush relative to the canvas
 const MAX_BRUSH_SIZE: f32 = 0.25;
@@ -22,7 +26,7 @@ pub struct BrushConfig {
 pub struct PanelMaskEdit {
     /// preview canvas size in pixels
     image_size: usize,
-    /// the mask as a MASK_SIZE x MASK_SIZE f32 matrix
+    /// the mask as a square f32 matrix of any side
     mask: Option<Vec<f32>>,
     /// the step's edge feather, 0.0..=1.0, committed with the mask
     feather: f32,
@@ -30,7 +34,7 @@ pub struct PanelMaskEdit {
     feather_pending: bool,
     /// the brush parameters
     conf: BrushConfig,
-    /// GPU texture of `mask`, a MASK_SIZE x MASK_SIZE grayscale image
+    /// GPU texture of `mask`, a grayscale image of the mask's side
     mask_tex: Option<TextureHandle>,
     /// `mask` changed since the last upload to `mask_tex`
     mask_dirty: bool,
@@ -77,6 +81,7 @@ impl PanelMaskEdit {
     /// `heightmap_id` is the 2D panel's heightmap texture, drawn over the mask
     pub fn render(&mut self, ui: &mut egui::Ui, heightmap_id: TextureId) -> Option<Panel2dAction> {
         let mut action = None;
+        let side = self.mask.as_deref().map_or(MASK_SIZE, mask_side);
         ui.vertical(|ui| {
             let was_painting = self.is_painting;
             egui::Frame::dark_canvas(ui.style()).show(ui, |ui| {
@@ -97,7 +102,7 @@ impl PanelMaskEdit {
                 ui.add(
                     egui::DragValue::new(&mut self.conf.size)
                         .speed(0.01)
-                        .range(1.0 / (MASK_SIZE as f32)..=1.0),
+                        .range(1.0 / (side as f32)..=1.0),
                 );
                 ui.label("falloff");
                 ui.add(
@@ -267,14 +272,15 @@ impl PanelMaskEdit {
         time: f32,
     ) {
         if let Some(ref mut mask) = self.mask {
-            let mx = canvas_pos.x * MASK_SIZE as f32;
-            let my = canvas_pos.y * MASK_SIZE as f32;
-            let brush_radius = brush_config.size * MASK_SIZE as f32 * MAX_BRUSH_SIZE;
+            let side = mask_side(mask);
+            let mx = canvas_pos.x * side as f32;
+            let my = canvas_pos.y * side as f32;
+            let brush_radius = brush_config.size * side as f32 * MAX_BRUSH_SIZE;
             let falloff_dist = (1.0 - brush_config.falloff) * brush_radius;
             let minx = (mx - brush_radius).max(0.0) as usize;
-            let maxx = ((mx + brush_radius) as usize).min(MASK_SIZE);
+            let maxx = ((mx + brush_radius) as usize).min(side);
             let miny = (my - brush_radius).max(0.0) as usize;
-            let maxy = ((my + brush_radius) as usize).min(MASK_SIZE);
+            let maxy = ((my + brush_radius) as usize).min(side);
             let opacity_factor = 0.5 + brush_config.opacity;
             let (target_value, time_coef) = if lbutton {
                 (0.0, 10.0)
@@ -289,7 +295,7 @@ impl PanelMaskEdit {
             let coef = time * time_coef * opacity_factor;
             for y in miny..maxy {
                 let dy = y as f32 - my;
-                let yoff = y * MASK_SIZE;
+                let yoff = y * side;
                 for x in minx..maxx {
                     let dx = x as f32 - mx;
                     // distance from brush center
@@ -321,7 +327,8 @@ fn mask_image(mask: &[f32]) -> ColorImage {
         .iter()
         .map(|v| (v * 255.0).clamp(0.0, 255.0) as u8)
         .collect();
-    ColorImage::from_gray([MASK_SIZE, MASK_SIZE], &bytes)
+    let side = mask_side(mask);
+    ColorImage::from_gray([side, side], &bytes)
 }
 
 #[cfg(test)]

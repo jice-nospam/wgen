@@ -96,11 +96,11 @@ This might be needed for other engines where each tile is an independant terrain
 wgen can also generate a project without opening the editor, which is the way to time a stack or to script exports:
 
 ```
-wgen --export <project.wgen> --out <file.png|file.exr> [--size <side>|<width>x<height>] [--cpu]
+wgen --export <project.wgen> --out <file.png|file.exr> [--size <side>|<width>x<height>] [--tiles <n>|<nx>x<ny>] [--cpu]
 wgen --help
 ```
 
-`--export` loads the project (a file saved by the editor), runs its steps at the given size (1024 by default, as one map, never tiled) and writes it as a 16-bit PNG or an EXR, rescaled to 0..1 like the editor's export. The GPU is used when one is available; `--cpu` runs every generator on the CPU. One line per step is printed with its time, then the total. Exit code 0 on success, 1 when a step or the write fails, 2 for a bad command line.
+`--export` loads the project (a file saved by the editor), runs its steps at the given size (1024 by default, always the whole map) and writes it as a 16-bit PNG or an EXR, rescaled to 0..1 like the editor's export. `--tiles` splits that map into `nx × ny` files named `<name>_x<i>_y<j>.<ext>` like the editor's tiled export (never seamless); the size must divide exactly by the tile count. Before writing, the raw height range of the map is printed as `cli=>heights <min>..<max>`. The GPU is used when one is available; `--cpu` runs every generator on the CPU. One line per step is printed with its time, then the total. Exit code 0 on success, 1 when a step or the write fails, 2 for a bad command line.
 
 # Engines guide
 ## Unreal Engine 5

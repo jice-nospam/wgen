@@ -7,7 +7,14 @@ pub struct MudSlideConf {
     iterations: f32,
     max_erosion_alt: f32,
     strength: f32,
-    water_level: f32,
+    /// the per-step water level of files older than the project's; read, never written
+    #[serde(
+        rename = "water_level",
+        default,
+        skip_serializing,
+        deserialize_with = "super::legacy_water_level"
+    )]
+    pub(crate) legacy_water_level: Option<f32>,
 }
 
 impl Default for MudSlideConf {
@@ -16,7 +23,7 @@ impl Default for MudSlideConf {
             iterations: 5.0,
             max_erosion_alt: 0.9,
             strength: 0.4,
-            water_level: 0.12,
+            legacy_water_level: None,
         }
     }
 }
@@ -46,13 +53,6 @@ pub fn render_mudslide(ui: &mut egui::Ui, conf: &mut MudSlideConf) {
                 .speed(0.01)
                 .range(0.0..=1.0),
         );
-        ui.label("water level")
-            .on_hover_text("Land below this height is left untouched");
-        ui.add(
-            egui::DragValue::new(&mut conf.water_level)
-                .speed(0.01)
-                .range(0.0..=1.0),
-        );
     });
 }
 
@@ -60,12 +60,13 @@ pub fn gen_mudslide(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &MudSlideConf,
+    water_level: f32,
     progress: &mut Progress,
 ) {
     let mut scratch = vec![0.0; size.0 * size.1];
     for i in 0..conf.iterations as usize {
         // a cancelled pass leaves `hmap` untouched
-        if !mudslide(size, hmap, &mut scratch, conf, i, progress) {
+        if !mudslide(size, hmap, &mut scratch, conf, water_level, i, progress) {
             return;
         }
         hmap.copy_from_slice(&scratch);
@@ -78,14 +79,15 @@ fn mudslide(
     hmap: &[f32],
     out: &mut [f32],
     conf: &MudSlideConf,
+    water_level: f32,
     iteration: usize,
     progress: &mut Progress,
 ) -> bool {
-    let sand_coef = 1.0 / (1.0 - conf.water_level);
+    let sand_coef = 1.0 / (1.0 - water_level);
     let n = conf.iterations;
     let window = (iteration as f32 / n, (iteration + 1) as f32 / n);
     par_rows(size.0, out, progress, window, |y, row| {
-        mudslide_row(size, hmap, y, row, conf, sand_coef)
+        mudslide_row(size, hmap, y, row, conf, water_level, sand_coef)
     })
 }
 
@@ -96,12 +98,13 @@ fn mudslide_row(
     y: usize,
     out: &mut [f32],
     conf: &MudSlideConf,
+    water_level: f32,
     sand_coef: f32,
 ) {
     let yoff = y * size.0;
     for (x, out_h) in out.iter_mut().enumerate() {
         let h = hmap[x + yoff];
-        if h < conf.water_level - 0.01 || h >= conf.max_erosion_alt {
+        if h < water_level - 0.01 || h >= conf.max_erosion_alt {
             *out_h = h;
             continue;
         }
@@ -130,7 +133,7 @@ fn mudslide_row(
         // average height difference with lower neighbours
         let mut dh = sum_delta1 / nb1 + sum_delta2 / nb2;
         dh *= conf.strength;
-        let hcoef = (h - conf.water_level) * sand_coef;
+        let hcoef = (h - water_level) * sand_coef;
         dh *= 1.0 - hcoef * hcoef * hcoef; // less smoothing at high altitudes
         *out_h = h + dh;
     }
@@ -144,12 +147,12 @@ mod tests {
     fn mudslide_is_deterministic_and_keeps_a_flat_map_flat() {
         let conf = MudSlideConf::default();
         let mut flat = vec![0.5; 8 * 8];
-        gen_mudslide((8, 8), &mut flat, &conf, &mut Progress::headless());
+        gen_mudslide((8, 8), &mut flat, &conf, 0.12, &mut Progress::headless());
         assert!(flat.iter().all(|&v| v == 0.5));
         let mut a: Vec<f32> = (0..64).map(|i| ((i * 7) % 11) as f32 / 11.0).collect();
         let mut b = a.clone();
-        gen_mudslide((8, 8), &mut a, &conf, &mut Progress::headless());
-        gen_mudslide((8, 8), &mut b, &conf, &mut Progress::headless());
+        gen_mudslide((8, 8), &mut a, &conf, 0.12, &mut Progress::headless());
+        gen_mudslide((8, 8), &mut b, &conf, 0.12, &mut Progress::headless());
         assert_eq!(a, b);
     }
 
@@ -161,7 +164,7 @@ mod tests {
         };
         let ramp: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
         let mut run = ramp.clone();
-        gen_mudslide((8, 8), &mut run, &conf, &mut Progress::headless());
+        gen_mudslide((8, 8), &mut run, &conf, 0.12, &mut Progress::headless());
         assert_ne!(run, ramp, "an uncancelled run must change the ramp");
         let (tx, _) = std::sync::mpsc::channel();
         let mut cancelled = ramp.clone();
@@ -169,6 +172,7 @@ mod tests {
             (8, 8),
             &mut cancelled,
             &conf,
+            0.12,
             &mut Progress::preview(tx, 1.0, || true),
         );
         assert_eq!(cancelled, ramp);

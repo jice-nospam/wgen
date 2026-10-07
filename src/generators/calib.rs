@@ -191,7 +191,13 @@ mod tests {
             };
             let start = Instant::now();
             let mut out = input.clone();
-            gen_fluvial_erosion(size, &mut out, &conf, &mut Progress::headless());
+            gen_fluvial_erosion(
+                size,
+                &mut out,
+                &conf,
+                conf.legacy_water_level.unwrap_or(0.0),
+                &mut Progress::headless(),
+            );
             let elapsed = start.elapsed();
             let shade = dir.join(format!("fluvial_{side}_shade.png"));
             write_hillshade_png(&shade, size, &out, gain);
@@ -286,7 +292,7 @@ mod tests {
             });
             h.copy_from_slice(&base);
             time(&format!("landmass {side}"), || {
-                gen_landmass(size, &mut h, &LandMassConf::default(), &mut p)
+                gen_landmass(size, &mut h, &LandMassConf::default(), 0.12, &mut p)
             });
             time(&format!("island {side}"), || {
                 gen_island(size, &mut h, &IslandConf::default(), &mut p)
@@ -295,11 +301,11 @@ mod tests {
                 gen_normalize(&mut h, &NormalizeConf::default())
             });
             time(&format!("mudslide {side}"), || {
-                gen_mudslide(size, &mut h, &MudSlideConf::default(), &mut p)
+                gen_mudslide(size, &mut h, &MudSlideConf::default(), 0.12, &mut p)
             });
             h.copy_from_slice(&base);
             time(&format!("water_erosion {side} work 512"), || {
-                gen_water_erosion(1, size, &mut h, &WaterErosionConf::default(), &mut p)
+                gen_water_erosion(1, size, &mut h, &WaterErosionConf::default(), 0.0, &mut p)
             });
             for &wr in &work_res {
                 h.copy_from_slice(&base);
@@ -308,13 +314,24 @@ mod tests {
                     ..Default::default()
                 };
                 time(&format!("thermal {side} work {wr}"), || {
-                    gen_thermal_erosion(size, &mut h, &conf, &mut p)
+                    gen_thermal_erosion(
+                        size,
+                        &mut h,
+                        &conf,
+                        conf.legacy_water_level.unwrap_or(0.0),
+                        &mut p,
+                    )
                 });
                 if let Some(gpu) = crate::gpu::test_context() {
                     h.copy_from_slice(&base);
                     time(&format!("thermal gpu {side} work {wr}"), || {
                         crate::gpu::thermal_erosion::gen_thermal_erosion_gpu(
-                            &gpu, size, &mut h, &conf, &mut p,
+                            &gpu,
+                            size,
+                            &mut h,
+                            &conf,
+                            conf.legacy_water_level.unwrap_or(0.0),
+                            &mut p,
                         )
                         .unwrap()
                     });
@@ -325,13 +342,24 @@ mod tests {
                     ..Default::default()
                 };
                 time(&format!("fluvial {side} work {wr}"), || {
-                    gen_fluvial_erosion(size, &mut h, &conf, &mut p)
+                    gen_fluvial_erosion(
+                        size,
+                        &mut h,
+                        &conf,
+                        conf.legacy_water_level.unwrap_or(0.0),
+                        &mut p,
+                    )
                 });
                 if let Some(gpu) = crate::gpu::test_context() {
                     h.copy_from_slice(&base);
                     time(&format!("fluvial gpu {side} work {wr}"), || {
                         crate::gpu::fluvial_erosion::gen_fluvial_erosion_gpu(
-                            &gpu, size, &mut h, &conf, &mut p,
+                            &gpu,
+                            size,
+                            &mut h,
+                            &conf,
+                            conf.legacy_water_level.unwrap_or(0.0),
+                            &mut p,
                         )
                         .unwrap()
                     });
@@ -450,7 +478,8 @@ mod tests {
             time(&format!("fluvial route {work}"), || {
                 net.route(size, &h, 0.0)
             });
-            let params = ThermalParams::new(&ThermalErosionConf::default(), work as f32 / 512.0);
+            let params =
+                ThermalParams::new(&ThermalErosionConf::default(), 0.0, work as f32 / 512.0);
             let mut out = h.clone();
             time(&format!("thermal slide_pass {work}"), || {
                 slide_pass(size, &h, &mut out, &params, 0.0, 1.0, &mut p);

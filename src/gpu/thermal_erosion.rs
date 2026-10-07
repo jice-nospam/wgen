@@ -39,10 +39,11 @@ pub fn gen_thermal_erosion_gpu(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &ThermalErosionConf,
+    water_level: f32,
     progress: &mut Progress,
 ) -> Result<(), GpuError> {
     let start = Instant::now();
-    let (work, params) = thermal_plan(size, conf);
+    let (work, params) = thermal_plan(size, conf, water_level);
     let small = if work == size {
         hmap.to_vec()
     } else {
@@ -94,7 +95,7 @@ mod tests {
             talus: 0.1,
             strength: 0.9,
             iterations: 20,
-            water_level: 0.3,
+            legacy_water_level: Some(0.3),
             work_res: 512,
         }
     }
@@ -126,8 +127,22 @@ mod tests {
     ) -> bool {
         let mut cpu = input.to_vec();
         let mut on_gpu = input.to_vec();
-        gen_thermal_erosion(size, &mut cpu, conf, &mut Progress::headless());
-        gen_thermal_erosion_gpu(gpu, size, &mut on_gpu, conf, &mut Progress::headless()).unwrap();
+        gen_thermal_erosion(
+            size,
+            &mut cpu,
+            conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        );
+        gen_thermal_erosion_gpu(
+            gpu,
+            size,
+            &mut on_gpu,
+            conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        )
+        .unwrap();
         let (diff, i) = max_diff(&cpu, &on_gpu);
         eprintln!("{name}: max |cpu - gpu| = {diff}");
         assert!(
@@ -148,8 +163,24 @@ mod tests {
         let conf = ThermalErosionConf::default();
         let mut a = input.clone();
         let mut b = input;
-        gen_thermal_erosion_gpu(&gpu, (64, 64), &mut a, &conf, &mut Progress::headless()).unwrap();
-        gen_thermal_erosion_gpu(&gpu, (64, 64), &mut b, &conf, &mut Progress::headless()).unwrap();
+        gen_thermal_erosion_gpu(
+            &gpu,
+            (64, 64),
+            &mut a,
+            &conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        )
+        .unwrap();
+        gen_thermal_erosion_gpu(
+            &gpu,
+            (64, 64),
+            &mut b,
+            &conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        )
+        .unwrap();
         assert_eq!(a, b);
         assert!(a.iter().all(|v| v.is_finite()));
     }
@@ -192,6 +223,7 @@ mod tests {
             (64, 64),
             &mut h,
             &ThermalErosionConf::default(),
+            0.0,
             &mut progress,
         );
         assert!(res.is_ok());
@@ -204,11 +236,19 @@ mod tests {
         let input = cliff();
         let conf = ThermalErosionConf {
             work_res: 16,
-            water_level: 0.0,
+            legacy_water_level: Some(0.0),
             ..Default::default()
         };
         let mut h = input.clone();
-        gen_thermal_erosion_gpu(&gpu, (16, 16), &mut h, &conf, &mut Progress::headless()).unwrap();
+        gen_thermal_erosion_gpu(
+            &gpu,
+            (16, 16),
+            &mut h,
+            &conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        )
+        .unwrap();
         let before: f32 = input.iter().sum();
         let after: f32 = h.iter().sum();
         assert!(h != input, "the cliff did not crumble");

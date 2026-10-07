@@ -1,6 +1,8 @@
 use egui::{Color32, ColorImage, TextureHandle};
 
-use crate::{fps::FpsCounter, panel_maskedit::PanelMaskEdit, worldgen::ExportMap};
+use crate::{
+    fps::FpsCounter, height_range::HeightRange, panel_maskedit::PanelMaskEdit, worldgen::ExportMap,
+};
 
 pub enum Panel2dAction {
     /// the preview size has changed : terrain and 3d view must be recomputed
@@ -14,10 +16,8 @@ pub enum Panel2dAction {
 pub struct Panel2dView {
     /// preview image of the heightmap
     img: ColorImage,
-    /// minimum value in the heightmap
-    min: f32,
-    /// maximum value in the heightmap
-    max: f32,
+    /// the project's height window
+    height_range: HeightRange,
     /// are we displaying the mask editor ?
     mask_mode: bool,
     /// size of the preview canvas in pixels
@@ -44,8 +44,7 @@ impl Panel2dView {
     pub fn new(image_size: usize, preview_size: u32, hmap: &ExportMap) -> Self {
         let mut panel = Panel2dView {
             img: ColorImage::filled([image_size, image_size], Color32::BLACK),
-            min: 0.0,
-            max: 0.0,
+            height_range: HeightRange::default(),
             image_size,
             mask_mode: false,
             live_preview: true,
@@ -77,6 +76,10 @@ impl Panel2dView {
     pub fn exit_mask_mode(&mut self) {
         self.mask_mode = false;
     }
+    /// the window of raw heights shown black to white; takes effect at the next `refresh`
+    pub fn set_height_range(&mut self, height_range: HeightRange) {
+        self.height_range = height_range;
+    }
     /// re-renders the preview image; the mask editor, if shown, keeps its mask on top of the new image
     pub fn refresh(&mut self, image_size: usize, preview_size: u32, hmap: Option<&ExportMap>) {
         self.image_size = image_size;
@@ -88,21 +91,13 @@ impl Panel2dView {
             self.last_hmap = Some(hmap.clone());
         }
         if let Some(hmap) = &self.last_hmap {
-            let (min, max) = hmap.get_min_max();
-            let coef = if max - min > std::f32::EPSILON {
-                1.0 / (max - min)
-            } else {
-                1.0
-            };
-            self.min = min;
-            self.max = max;
+            let (min, coef) = self.height_range.unit(hmap.borrow());
             let mut idx = 0;
             for y in 0..image_size {
                 let py = ((y * preview_size as usize) as f32 / image_size as f32) as usize;
                 for x in 0..image_size {
                     let px = ((x * preview_size as usize) as f32 / image_size as f32) as usize;
-                    let mut h = hmap.height(px as usize, py as usize);
-                    h = (h - min) * coef;
+                    let h = HeightRange::to01(min, coef, hmap.height(px, py));
                     self.img.pixels[idx] = Color32::from_gray((h * 255.0).clamp(0.0, 255.0) as u8);
                     idx += 1;
                 }
@@ -142,9 +137,6 @@ impl Panel2dView {
                 if let Some(handle) = &self.ui_img {
                     ui.image((handle.id(), handle.size_vec2()));
                 }
-                ui.horizontal(|ui| {
-                    ui.label(format!("Height range : {} - {}", self.min, self.max));
-                });
             });
         }
         ui.label(format!("FPS : {}", self.fps_counter.fps()));

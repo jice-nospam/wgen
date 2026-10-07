@@ -118,6 +118,7 @@ pub fn gen_ridged(
             FOLD_OCTAVES,
             conf.fold_zoom,
             conf.fold / 100.0 * 512.0,
+            0.5,
         )
     });
     let coef = noise_coef(conf.zoom) as f64;

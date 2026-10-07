@@ -30,8 +30,8 @@ pub use mid_point::{gen_mid_point, render_mid_point, MidPointConf};
 pub use mudslide::{gen_mudslide, render_mudslide, MudSlideConf};
 pub use normalize::{gen_normalize, NormalizeConf};
 pub use par_rows::par_rows;
-pub use plateau::{gen_plateau, render_plateau, PlateauConf};
 pub(crate) use plateau::JITTER_OCTAVES as PLATEAU_JITTER_OCTAVES;
+pub use plateau::{gen_plateau, render_plateau, PlateauConf};
 pub use resample::{add_upsampled, bilinear, downsample, work_size};
 pub use ridged::{gen_ridged, render_ridged, RidgedConf};
 pub(crate) use ridged::{
@@ -45,6 +45,14 @@ use crate::ThreadMessage;
 
 const DIRX: [i32; 9] = [0, -1, 0, 1, -1, 1, -1, 0, 1];
 const DIRY: [i32; 9] = [0, -1, -1, -1, 0, 0, 1, 1, 1];
+
+/// reads the bare `f32` an old file stored as a per-step `water_level` into `Some`: RON only
+/// reads an `Option` from `Some(..)`
+pub(crate) fn legacy_water_level<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<f32>, D::Error> {
+    <f32 as serde::Deserialize>::deserialize(d).map(Some)
+}
 
 /// (min, max) of a map; (0, 0) for an empty one
 pub fn get_min_max(v: &[f32]) -> (f32, f32) {

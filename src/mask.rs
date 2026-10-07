@@ -1,24 +1,36 @@
-//! The step mask: a fixed square of 0..1 weights blended over the map by `worldgen::apply_mask`,
+//! The step mask: a square of 0..1 weights, of any side, blended over the map by `worldgen::apply_mask`,
 //! and the feather that softens its edges before the blend
 
-/// side of every step mask, in cells
+/// side of the masks the editor creates, in cells
 pub const MASK_SIZE: usize = 64;
 /// the ramp of a 1.0 feather, as a fraction of the map side
 pub const MAX_FEATHER: f32 = 0.25;
 
+/// the side of a square mask, from its length
+pub fn mask_side(mask: &[f32]) -> usize {
+    let side = mask.len().isqrt();
+    assert_eq!(
+        side * side,
+        mask.len(),
+        "a mask of {} cells is not a square",
+        mask.len()
+    );
+    side
+}
+
 /// softens the mask's edges: the grayscale erosion of the mask by a cone of slope `1 / R`,
-/// `f(p) = min over q of (mask(q) + d(p, q) / R)` with `R = feather × MASK_SIZE × MAX_FEATHER`
+/// `f(p) = min over q of (mask(q) + d(p, q) / R)` with `R = feather × side × MAX_FEATHER`
 /// cells, so no cell brightens and the mask never climbs faster than `1 / R` per cell. `d` is
 /// the chamfer (1, √2) distance, computed by the two-pass sequential erosion. `feather` is
 /// clamped to `0.0..=1.0`; at `R <= 1` the erosion is the identity and the mask is returned as is
 pub fn feather_mask(mask: &[f32], feather: f32) -> Vec<f32> {
-    let radius = feather.clamp(0.0, 1.0) * MASK_SIZE as f32 * MAX_FEATHER;
+    let n = mask_side(mask);
+    let radius = feather.clamp(0.0, 1.0) * n as f32 * MAX_FEATHER;
     let mut out = mask.to_vec();
     if radius <= 1.0 {
         return out;
     }
     let (edge, diag) = (1.0 / radius, std::f32::consts::SQRT_2 / radius);
-    let n = MASK_SIZE;
     let at = |x: usize, y: usize| x + y * n;
     // forward pass: from the left, up-left, up and up-right neighbours
     for y in 0..n {
@@ -75,7 +87,13 @@ pub(crate) mod tests {
     /// columns 0..=31 black, 32..=63 white
     pub(crate) fn half_black_mask() -> Vec<f32> {
         (0..MASK_SIZE * MASK_SIZE)
-            .map(|i| if i % MASK_SIZE < MASK_SIZE / 2 { 0.0 } else { 1.0 })
+            .map(|i| {
+                if i % MASK_SIZE < MASK_SIZE / 2 {
+                    0.0
+                } else {
+                    1.0
+                }
+            })
             .collect()
     }
 
@@ -100,8 +118,16 @@ pub(crate) mod tests {
         let out = feather_mask(&half_black_mask(), 0.5);
         let row = 10 * MASK_SIZE;
         for x in 0..MASK_SIZE {
-            let expected = if x <= 31 { 0.0 } else { ((x - 31) as f32 / 8.0).min(1.0) };
-            assert!((out[x + row] - expected).abs() < 1e-6, "x={x}: {} vs {expected}", out[x + row]);
+            let expected = if x <= 31 {
+                0.0
+            } else {
+                ((x - 31) as f32 / 8.0).min(1.0)
+            };
+            assert!(
+                (out[x + row] - expected).abs() < 1e-6,
+                "x={x}: {} vs {expected}",
+                out[x + row]
+            );
         }
         assert_eq!(out[39 + row], 1.0);
     }
@@ -130,6 +156,40 @@ pub(crate) mod tests {
             let v = at((c as i32 + dx) as usize, (c as i32 + dy) as usize);
             assert!((v - diag).abs() < 1e-6, "({dx}, {dy}): {v} vs {diag}");
         }
+    }
+
+    #[test]
+    fn feather_ramps_over_the_side_of_a_128_mask() {
+        // R = 0.25 × 128 × 0.5 = 16 cells
+        let n = 128;
+        let mask: Vec<f32> = (0..n * n)
+            .map(|i| if i % n < n / 2 { 0.0 } else { 1.0 })
+            .collect();
+        let out = feather_mask(&mask, 0.5);
+        let row = 10 * n;
+        for x in 0..n {
+            let expected = if x < n / 2 {
+                0.0
+            } else {
+                ((x - 63) as f32 / 16.0).min(1.0)
+            };
+            assert!(
+                (out[x + row] - expected).abs() < 1e-6,
+                "x={x}: {} vs {expected}",
+                out[x + row]
+            );
+        }
+    }
+
+    #[test]
+    fn mask_side_of_a_square() {
+        assert_eq!(mask_side(&[0.0; 32 * 32]), 32);
+    }
+
+    #[test]
+    #[should_panic]
+    fn mask_side_refuses_a_non_square() {
+        mask_side(&[0.0; 10]);
     }
 
     #[test]

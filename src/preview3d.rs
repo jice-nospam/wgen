@@ -5,6 +5,7 @@
 //!
 //! Bevy is Y-up: a heightmap cell `(x, y)` with height `h` is the vertex `[vx, h, vy]`, the
 //! grid is centred on the origin and spans `XY_SCALE`, heights are normalised to `0..ZSCALE`.
+
 use crate::panel_3dview::Panel3dViewConf;
 use crate::terrain_material::{terrain_settings, TerrainExtension, TerrainMaterial};
 use crate::water_material::{
@@ -315,29 +316,23 @@ pub fn spawn_scene(
 }
 
 /// the mapping from heightmap cells to scene positions shared by the terrain and skirt
-/// meshes: the grid centred on the origin over `XY_SCALE`, heights rescaled to `0..ZSCALE`
+/// meshes: the grid centred on the origin over `XY_SCALE`, a raw height `h` at `h × ZSCALE`
+/// whatever the map's range, so a step that changes some cells moves no other vertex
 struct Grid {
     step: (f32, f32),
     off: (f32, f32),
-    min: f32,
-    coef: f32,
+    /// the skirt's foot: the map minimum's height, never above the raw 0 plane
+    foot: f32,
 }
 
 impl Grid {
     fn new(size: (usize, usize), h: &[f32]) -> Self {
         let step = (XY_SCALE / size.0 as f32, XY_SCALE / size.1 as f32);
-        let (min, max) = crate::generators::get_min_max(h);
-        let coef = ZSCALE
-            * if max - min > f32::EPSILON {
-                1.0 / (max - min)
-            } else {
-                1.0
-            };
+        let (min, _) = crate::generators::get_min_max(h);
         Self {
             step,
             off: (-0.5 * step.0 * size.0 as f32, -0.5 * step.1 * size.1 as f32),
-            min,
-            coef,
+            foot: min.min(0.0) * ZSCALE,
         }
     }
 
@@ -351,13 +346,13 @@ impl Grid {
 
     /// a raw height in scene units
     fn height(&self, h: f32) -> f32 {
-        (h - self.min) * self.coef
+        h * ZSCALE
     }
 }
 
 /// the heightmap as a lit triangle mesh: one vertex per cell, `[vx, h, vy]`, the grid centred
-/// on the origin over `XY_SCALE`, heights rescaled to `0..ZSCALE`, smooth normals, and
-/// `UV_1 = [h01, curv01]` for the terrain shader (normalised height, cell curvature)
+/// on the origin over `XY_SCALE`, heights `h × ZSCALE`, smooth normals, and
+/// `UV_1 = [h01, curv01]` for the terrain shader (`h01` the raw height, cell curvature)
 pub fn terrain_mesh(size: (usize, usize), h: &[f32]) -> Mesh {
     let grid = Grid::new(size, h);
     let mut positions = Vec::with_capacity(size.0 * size.1);
@@ -369,7 +364,7 @@ pub fn terrain_mesh(size: (usize, usize), h: &[f32]) -> Mesh {
             let hv = grid.height(h[x + y * size.0]);
             positions.push([vx, hv, vy]);
             uvs.push([x as f32 / size.0 as f32, y as f32 / size.1 as f32]);
-            uvs_b.push([hv / ZSCALE, curvature01(size, h, (x, y), grid.coef)]);
+            uvs_b.push([hv / ZSCALE, curvature01(size, h, (x, y), ZSCALE)]);
         }
     }
     let mut indices = Vec::with_capacity(6 * (size.0 - 1) * (size.1 - 1));
@@ -393,8 +388,8 @@ pub fn terrain_mesh(size: (usize, usize), h: &[f32]) -> Mesh {
 }
 
 /// the four vertical walls closing the terrain into a block: from every border vertex of
-/// `terrain_mesh` straight down to height 0 (the map minimum, the water plane's lowest
-/// position), one flat outward normal per wall, no UVs
+/// `terrain_mesh` straight down to the map minimum, or to the raw 0 plane when the map lies above
+/// it, one flat outward normal per wall, no UVs
 pub fn skirt_mesh(size: (usize, usize), h: &[f32]) -> Mesh {
     let grid = Grid::new(size, h);
     let (w, d) = size;
@@ -415,7 +410,7 @@ pub fn skirt_mesh(size: (usize, usize), h: &[f32]) -> Mesh {
         for &cell in &edge {
             let [vx, vy] = grid.xy(cell);
             positions.push([vx, grid.height(h[cell.0 + cell.1 * w]), vy]);
-            positions.push([vx, 0.0, vy]);
+            positions.push([vx, grid.foot, vy]);
             normals.push(outward.to_array());
             normals.push(outward.to_array());
         }
@@ -668,7 +663,7 @@ mod tests {
     #[test]
     fn terrain_mesh_layout() {
         let size = (4, 3);
-        let h: Vec<f32> = (0..12).map(|v| v as f32).collect();
+        let h: Vec<f32> = (0..12).map(|v| v as f32 / 4.0).collect();
         let mesh = terrain_mesh(size, &h);
         let pos = mesh
             .attribute(Mesh::ATTRIBUTE_POSITION)
@@ -677,8 +672,10 @@ mod tests {
         assert_eq!(pos.len(), 12);
         assert_eq!(uv1(&mesh).len(), 12);
         assert_eq!(mesh.indices().unwrap().len(), 36);
-        assert!(pos.iter().all(|p| (0.0..=ZSCALE).contains(&p[1])));
-        assert_eq!(pos[11][1], ZSCALE);
+        // absolute: raw h at h × ZSCALE
+        assert_eq!(pos[0][1], 0.0);
+        assert_eq!(pos[4][1], ZSCALE);
+        assert_eq!(pos[11][1], 2.75 * ZSCALE);
         assert_eq!(pos[0][0], -0.5 * XY_SCALE);
         // the grid is centred on the origin: mean x is off + 1.5 * g
         let mean_x = pos.iter().map(|p| p[0]).sum::<f32>() / pos.len() as f32;
@@ -717,10 +714,28 @@ mod tests {
                 assert!((ramp[at(x, y)][1] - 0.5).abs() < 1e-5, "ramp {x} {y}");
             }
         }
-        // h01 spans the map's range; a flat map is 0
+        // h01 is the raw height
         assert_eq!(ramp[at(0, 4)][0], 0.0);
-        assert_eq!(ramp[at(8, 4)][0], 1.0);
-        assert_eq!(flat[at(4, 4)][0], 0.0);
+        assert_eq!(ramp[at(8, 4)][0], 8.0);
+        assert_eq!(flat[at(4, 4)][0], 3.0);
+    }
+
+    /// B-009: raising one cell moves no other vertex, whatever the map's new range
+    #[test]
+    fn raised_cell_keeps_untouched_cells() {
+        let base: Vec<f32> = (0..16).map(|v| v as f32 / 16.0).collect();
+        let mut raised = base.clone();
+        raised[5] = 50.0;
+        let heights = |h: &[f32]| -> Vec<f32> {
+            let mesh = terrain_mesh((4, 4), h);
+            let pos = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap();
+            pos.as_float3().unwrap().iter().map(|p| p[1]).collect()
+        };
+        let (a, b) = (heights(&base), heights(&raised));
+        for i in (0..16).filter(|&i| i != 5) {
+            assert_eq!(a[i], b[i], "vertex {i} moved");
+        }
+        assert_eq!(b[5], 50.0 * ZSCALE);
     }
 
     #[test]

@@ -3,6 +3,7 @@
 //! deferred material cannot read the depth prepass it is writing) and tilts its normal with
 //! a tileable ripple normal map scrolled by time. `apply_water_conf` keeps the shader's
 //! uniform in step with the "3d preview" panel.
+
 use crate::panel_3dview::Panel3dViewConf;
 use crate::preview3d::{PreviewViewport, SceneDirty, Water, ZSCALE};
 use bevy::asset::{embedded_asset, RenderAssetUsages};
@@ -103,18 +104,12 @@ pub fn water_settings(conf: &Panel3dViewConf) -> WaterSettings {
     }
 }
 
-/// the heightmap as an `R32Float` texture of its own size: pixel `(x, y)` is `h01`, the
-/// height normalised to the map's range as `terrain_mesh` does (a flat map is all zeros)
+/// the heightmap as an `R32Float` texture of its own size: pixel `(x, y)` is `h01`, the raw
+/// height, the unit `terrain_mesh` scales by `ZSCALE`
 pub fn heightmap_image(size: (usize, usize), h: &[f32]) -> Image {
-    let (min, max) = crate::generators::get_min_max(h);
-    let coef = if max - min > f32::EPSILON {
-        1.0 / (max - min)
-    } else {
-        0.0
-    };
     let mut data = Vec::with_capacity(size.0 * size.1 * 4);
-    for v in &h[..size.0 * size.1] {
-        data.extend_from_slice(&((v - min) * coef).to_le_bytes());
+    for &v in &h[..size.0 * size.1] {
+        data.extend_from_slice(&v.to_le_bytes());
     }
     Image::new(
         Extent3d {
@@ -266,19 +261,13 @@ mod tests {
     }
 
     #[test]
-    fn heightmap_image_is_h01_row_major() {
-        let ramp: Vec<f32> = (0..12).map(|v| v as f32 * 3.0 + 5.0).collect();
+    fn heightmap_image_is_raw_and_row_major() {
+        let ramp: Vec<f32> = (0..12).map(|v| v as f32 * 3.0 - 5.0).collect();
         let image = heightmap_image((4, 3), &ramp);
         assert_eq!(image.texture_descriptor.format, TextureFormat::R32Float);
         assert_eq!(image.width(), 4);
         assert_eq!(image.height(), 3);
-        let p = pixels(&image);
-        assert_eq!(p.len(), 12);
-        assert_eq!(p[0], 0.0);
-        assert_eq!(p[3 + 2 * 4], 1.0);
-        assert!(p.windows(2).all(|w| w[0] < w[1]));
-        let flat = heightmap_image((4, 3), &[7.0; 12]);
-        assert!(pixels(&flat).iter().all(|&v| v == 0.0));
+        assert_eq!(pixels(&image), ramp);
     }
 
     #[test]

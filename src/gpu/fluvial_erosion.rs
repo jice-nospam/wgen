@@ -89,10 +89,11 @@ pub fn gen_fluvial_erosion_gpu(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &FluvialErosionConf,
+    water_level: f32,
     progress: &mut Progress,
 ) -> Result<(), GpuError> {
     let start = Instant::now();
-    let (work, params) = fluvial_plan(size, conf);
+    let (work, params) = fluvial_plan(size, conf, water_level);
     let small = if work == size {
         hmap.to_vec()
     } else {
@@ -1051,8 +1052,22 @@ mod tests {
     ) -> (Vec<f32>, Vec<f32>) {
         let mut cpu = input.to_vec();
         let mut on_gpu = input.to_vec();
-        gen_fluvial_erosion(size, &mut cpu, conf, &mut Progress::headless());
-        gen_fluvial_erosion_gpu(gpu, size, &mut on_gpu, conf, &mut Progress::headless()).unwrap();
+        gen_fluvial_erosion(
+            size,
+            &mut cpu,
+            conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        );
+        gen_fluvial_erosion_gpu(
+            gpu,
+            size,
+            &mut on_gpu,
+            conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        )
+        .unwrap();
         (cpu, on_gpu)
     }
 
@@ -1063,8 +1078,24 @@ mod tests {
         let conf = FluvialErosionConf::default();
         let mut a = input.clone();
         let mut b = input.clone();
-        gen_fluvial_erosion_gpu(&gpu, (64, 64), &mut a, &conf, &mut Progress::headless()).unwrap();
-        gen_fluvial_erosion_gpu(&gpu, (64, 64), &mut b, &conf, &mut Progress::headless()).unwrap();
+        gen_fluvial_erosion_gpu(
+            &gpu,
+            (64, 64),
+            &mut a,
+            &conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        )
+        .unwrap();
+        gen_fluvial_erosion_gpu(
+            &gpu,
+            (64, 64),
+            &mut b,
+            &conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        )
+        .unwrap();
         assert_eq!(a, b);
         assert!(a != input, "the twin did nothing");
         assert!(a.iter().all(|v| v.is_finite()));
@@ -1083,7 +1114,7 @@ mod tests {
             iterations: 5,
             ..Default::default()
         };
-        let (_, params) = fluvial_plan(size, &conf);
+        let (_, params) = fluvial_plan(size, &conf, conf.legacy_water_level.unwrap_or(0.0));
         let Routing { w, recv, area } = gpu.fluvial_route_gpu(size, &input, &params).unwrap();
         let mut net = FlowNet::new();
         net.route(size, &input, params.water_level);
@@ -1110,7 +1141,7 @@ mod tests {
         let size = (64, 64);
         let input = stock_map(5, size);
         let conf = FluvialErosionConf::default();
-        let (_, params) = fluvial_plan(size, &conf);
+        let (_, params) = fluvial_plan(size, &conf, conf.legacy_water_level.unwrap_or(0.0));
         let Routing { w, recv, area } = gpu.fluvial_route_gpu(size, &input, &params).unwrap();
         let mut land = 0;
         for i in 0..64 * 64 {
@@ -1148,7 +1179,7 @@ mod tests {
             (
                 "second",
                 FluvialErosionConf {
-                    water_level: 0.3,
+                    legacy_water_level: Some(0.3),
                     uplift: 0.01,
                     ..Default::default()
                 },
@@ -1197,6 +1228,7 @@ mod tests {
             (64, 64),
             &mut h,
             &FluvialErosionConf::default(),
+            0.0,
             &mut progress,
         );
         assert!(res.is_ok());
@@ -1212,7 +1244,7 @@ mod tests {
         let Some(gpu) = test_context() else { return };
         let size = (512, 512);
         let input = stock_map(5, size);
-        let (_, params) = fluvial_plan(size, &FluvialErosionConf::default());
+        let (_, params) = fluvial_plan(size, &FluvialErosionConf::default(), 0.0);
         let run = gpu.prepare_fluvial(size, &input, &params).unwrap();
         let offset = |slot: usize| (slot as u64 * run.stride) as u32;
         let time = |label: &str, encode: &dyn Fn(&mut wgpu::CommandEncoder)| {

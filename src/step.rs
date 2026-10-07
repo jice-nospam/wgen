@@ -50,6 +50,17 @@ impl StepType {
             StepType::Island(IslandConf::default()),
         ]
     }
+    /// the per-step water level an old file stored in this step's conf, if any
+    pub fn legacy_water_level(&self) -> Option<f32> {
+        match self {
+            StepType::LandMass(conf) => conf.legacy_water_level,
+            StepType::MudSlide(conf) => conf.legacy_water_level,
+            StepType::ThermalErosion(conf) => conf.legacy_water_level,
+            StepType::WaterErosion(conf) => conf.legacy_water_level,
+            StepType::FluvialErosion(conf) => conf.legacy_water_level,
+            _ => None,
+        }
+    }
     /// the variant name: the step label, and what `Step`'s `Display` prints
     pub fn name(&self) -> &'static str {
         match self {
@@ -114,7 +125,8 @@ impl StepType {
     /// runs the generator on `h`, which holds the previous step's output; a cancelled
     /// `progress` makes the generator return early with `h` in an unspecified state.
     /// A generator with a GPU twin runs it when `backend` offers a context, and falls back to
-    /// the CPU generator when the twin fails before writing anything
+    /// the CPU generator when the twin fails before writing anything. `water_level` is the
+    /// project's sea level, read by the generators that have a sea
     pub fn run(
         &self,
         seed: u64,
@@ -122,6 +134,7 @@ impl StepType {
         h: &mut [f32],
         progress: &mut Progress,
         backend: &Backend,
+        water_level: f32,
     ) {
         match self {
             StepType::Hills(conf) => gen_hills(seed, size, h, conf, progress),
@@ -154,26 +167,32 @@ impl StepType {
                 None => gen_plateau(seed, size, h, conf, progress),
             },
             StepType::Normalize(conf) => gen_normalize(h, conf),
-            StepType::LandMass(conf) => gen_landmass(size, h, conf, progress),
-            StepType::MudSlide(conf) => gen_mudslide(size, h, conf, progress),
+            StepType::LandMass(conf) => gen_landmass(size, h, conf, water_level, progress),
+            StepType::MudSlide(conf) => gen_mudslide(size, h, conf, water_level, progress),
             StepType::ThermalErosion(conf) => match backend.gpu() {
                 Some(gpu) => {
-                    if let Err(e) = gen_thermal_erosion_gpu(gpu, size, h, conf, progress) {
+                    if let Err(e) =
+                        gen_thermal_erosion_gpu(gpu, size, h, conf, water_level, progress)
+                    {
                         crate::log(&format!("gpu=>thermal fell back to the CPU: {}", e.0));
-                        gen_thermal_erosion(size, h, conf, progress)
+                        gen_thermal_erosion(size, h, conf, water_level, progress)
                     }
                 }
-                None => gen_thermal_erosion(size, h, conf, progress),
+                None => gen_thermal_erosion(size, h, conf, water_level, progress),
             },
-            StepType::WaterErosion(conf) => gen_water_erosion(seed, size, h, conf, progress),
+            StepType::WaterErosion(conf) => {
+                gen_water_erosion(seed, size, h, conf, water_level, progress)
+            }
             StepType::FluvialErosion(conf) => match backend.gpu() {
                 Some(gpu) => {
-                    if let Err(e) = gen_fluvial_erosion_gpu(gpu, size, h, conf, progress) {
+                    if let Err(e) =
+                        gen_fluvial_erosion_gpu(gpu, size, h, conf, water_level, progress)
+                    {
                         crate::log(&format!("gpu=>fluvial fell back to the CPU: {}", e.0));
-                        gen_fluvial_erosion(size, h, conf, progress)
+                        gen_fluvial_erosion(size, h, conf, water_level, progress)
                     }
                 }
-                None => gen_fluvial_erosion(size, h, conf, progress),
+                None => gen_fluvial_erosion(size, h, conf, water_level, progress),
             },
             StepType::Island(conf) => gen_island(size, h, conf, progress),
         }
@@ -190,6 +209,10 @@ pub struct Step {
     /// of the map side); `mask::feather_mask` applies it
     #[serde(default)]
     pub mask_feather: f32,
+    /// reads the mask with cubic B-spline weights instead of bilinear ones, so tall masked
+    /// shapes carry no crease between mask cells
+    #[serde(default)]
+    pub mask_smooth: bool,
     /// step type with its configuration
     pub typ: StepType,
 }
@@ -200,6 +223,7 @@ impl Default for Step {
             disabled: false,
             mask: None,
             mask_feather: 0.0,
+            mask_smooth: false,
             typ: StepType::Normalize(NormalizeConf::default()),
         }
     }
@@ -238,6 +262,7 @@ mod tests {
             &mut cpu,
             &mut Progress::headless(),
             &Backend::Cpu,
+            0.0,
         );
         step.run(
             9,
@@ -245,6 +270,7 @@ mod tests {
             &mut on_gpu,
             &mut Progress::headless(),
             &Backend::Gpu(gpu),
+            0.0,
         );
         let diff = cpu
             .iter()
@@ -269,6 +295,7 @@ mod tests {
             &mut cpu,
             &mut Progress::headless(),
             &Backend::Cpu,
+            0.0,
         );
         step.run(
             9,
@@ -276,6 +303,7 @@ mod tests {
             &mut on_gpu,
             &mut Progress::headless(),
             &Backend::Gpu(gpu),
+            0.0,
         );
         assert!(cpu != input, "the step did nothing");
         let diff = cpu
@@ -301,6 +329,7 @@ mod tests {
             &mut cpu,
             &mut Progress::headless(),
             &Backend::Cpu,
+            0.0,
         );
         step.run(
             9,
@@ -308,6 +337,7 @@ mod tests {
             &mut on_gpu,
             &mut Progress::headless(),
             &Backend::Gpu(gpu),
+            0.0,
         );
         assert!(cpu != input, "the step did nothing");
         assert!(on_gpu != input, "the twin did nothing");
@@ -349,6 +379,25 @@ mod tests {
         let names: Vec<&str> = StepType::all().iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"MudSlide"));
         assert!(!names.contains(&"WaterErosion"));
+    }
+
+    #[test]
+    fn thermal_reads_the_world_water_level() {
+        let step = StepType::ThermalErosion(crate::generators::ThermalErosionConf::default());
+        let input: Vec<f32> = (0..256).map(|i| (i % 16) as f32 * 0.3).collect();
+        let run = |water: f32| {
+            let mut h = input.clone();
+            step.run(
+                1,
+                (16, 16),
+                &mut h,
+                &mut Progress::headless(),
+                &Backend::Cpu,
+                water,
+            );
+            h
+        };
+        assert_ne!(run(0.0), run(0.5));
     }
 
     #[test]

@@ -44,8 +44,9 @@ pub struct Warp {
 }
 
 impl Warp {
-    /// `stream_a` / `stream_b` seed the two fields, `zoom` is their zoom and `amount_px` the
+    /// `stream_a` / `stream_b` seed the two fields, `zoom` is their zoom, `amount_px` the
     /// displacement in virtual pixels (a conf gives it as a % of the map side: `pct / 100 · 512`)
+    /// and `persistence` the share of amplitude each finer octave keeps (the crate's default 0.5)
     pub fn new(
         seed: u64,
         stream_a: u32,
@@ -53,10 +54,11 @@ impl Warp {
         octaves: usize,
         zoom: f32,
         amount_px: f32,
+        persistence: f64,
     ) -> Self {
         Self {
-            a: fbm_stream(seed, stream_a, octaves),
-            b: fbm_stream(seed, stream_b, octaves),
+            a: fbm_stream(seed, stream_a, octaves).set_persistence(persistence),
+            b: fbm_stream(seed, stream_b, octaves).set_persistence(persistence),
             coef: noise_coef(zoom) as f64,
             amount: amount_px as f64,
         }
@@ -93,11 +95,11 @@ mod tests {
 
     #[test]
     fn warp_zero_is_identity() {
-        let warp = Warp::new(3, 1, 2, 3, 1.5, 0.0);
+        let warp = Warp::new(3, 1, 2, 3, 1.5, 0.0, 0.5);
         for p in [[0.0, 0.0], [17.5, 300.25], [511.0, 3.0]] {
             assert_eq!(warp.apply(p), p);
         }
-        let bent = Warp::new(3, 1, 2, 3, 1.5, 51.2);
+        let bent = Warp::new(3, 1, 2, 3, 1.5, 51.2, 0.5);
         assert_ne!(bent.apply([17.5, 300.25]), [17.5, 300.25]);
     }
 }

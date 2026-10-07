@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.0] - unreleased
+
+### Added
+
+- Smooth masks: a step's mask can be read without creases between its cells (the "smooth" checkbox, `mask_smooth`).
+- Command line: `--tiles <n>|<nx>x<ny>` splits the export into tiles; the raw height range is logged before writing.
+
+### Changed
+
 ## [0.6.0] - 2026-09-20
 
 ### Added

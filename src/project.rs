@@ -3,6 +3,7 @@ use std::path::Path;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 
+use crate::height_range::HeightRange;
 use crate::worldgen::Step;
 use crate::VERSION;
 
@@ -22,15 +23,31 @@ pub struct Project {
     pub seed: u64,
     /// generator steps with their configuration and masks
     pub steps: Vec<Step>,
+    /// raw heights shown and exported as 0..1
+    #[serde(default)]
+    pub height_range: HeightRange,
+    /// sea level in raw height units, read by every generator with a sea and by the 3D preview;
+    /// `Some` once loaded
+    #[serde(default)]
+    pub water_level: Option<f32>,
 }
 
+/// the water level of a project that sets none
+pub const DEFAULT_WATER_LEVEL: f32 = 0.12;
+
 impl Project {
-    pub fn new(seed: u64, steps: Vec<Step>) -> Self {
+    pub fn new(seed: u64, steps: Vec<Step>, height_range: HeightRange, water_level: f32) -> Self {
         Self {
             version: VERSION.to_owned(),
             seed,
             steps,
+            height_range,
+            water_level: Some(water_level),
         }
+    }
+
+    pub fn water_level(&self) -> f32 {
+        self.water_level.unwrap_or(DEFAULT_WATER_LEVEL)
     }
 
     pub fn load(file_path: &str) -> Result<Self, String> {
@@ -46,9 +63,12 @@ impl Project {
     }
 
     fn from_ron(contents: &str) -> Result<Self, String> {
-        let project: Project =
+        let mut project: Project =
             ron::from_str(contents).map_err(|e| format!("Cannot parse the file : {}", e))?;
         check_version(&project.version)?;
+        if project.water_level.is_none() {
+            project.water_level = Some(legacy_water_level(&project.steps));
+        }
         Ok(project)
     }
 
@@ -57,6 +77,26 @@ impl Project {
         let config = PrettyConfig::new().compact_arrays(true);
         ron::ser::to_string_pretty(self, config).map_err(|e| format!("Cannot serialize : {}", e))
     }
+}
+
+/// the water level of a file older than the project-wide one: the first step that stored its
+/// own, in list order, else `DEFAULT_WATER_LEVEL`; logs when the steps disagreed
+fn legacy_water_level(steps: &[Step]) -> f32 {
+    let levels: Vec<f32> = steps
+        .iter()
+        .filter_map(|s| s.typ.legacy_water_level())
+        .collect();
+    let Some(&first) = levels.first() else {
+        return DEFAULT_WATER_LEVEL;
+    };
+    if levels.iter().any(|&l| l != first) {
+        let list: Vec<String> = levels.iter().map(|l| l.to_string()).collect();
+        crate::log(&format!(
+            "project=>steps had water levels {}; using {first}",
+            list.join(", ")
+        ));
+    }
+    first
 }
 
 /// refuses a file written by a wgen newer than this build
@@ -117,6 +157,41 @@ mod tests {
     }
 
     #[test]
+    fn old_file_has_auto_range_and_default_water() {
+        let project = Project::from_ron("(seed:1,steps:[])").unwrap();
+        assert_eq!(project.height_range, HeightRange::default());
+        assert_eq!(project.water_level, Some(DEFAULT_WATER_LEVEL));
+    }
+
+    #[test]
+    fn height_range_and_water_round_trip() {
+        let range = HeightRange {
+            auto: false,
+            min: -0.5,
+            max: 2.0,
+        };
+        let project = Project::new(3, vec![], range, 0.3);
+        let back = Project::from_ron(&project.to_ron().unwrap()).unwrap();
+        assert_eq!(back, project);
+        assert_eq!(back.water_level(), 0.3);
+    }
+
+    #[test]
+    fn legacy_water_level_first_step_wins() {
+        let old = "(seed:1,steps:[(disabled:false,mask:None,typ:LandMass((land_proportion:0.6,water_level:0.3,plain_factor:2.5))),(disabled:false,mask:None,typ:FluvialErosion((strength:0.6,uplift:0.0,iterations:5,water_level:0.0,work_res:512)))])";
+        let project = Project::from_ron(old).unwrap();
+        assert_eq!(project.water_level, Some(0.3));
+    }
+
+    #[test]
+    fn saved_project_has_no_step_water_level() {
+        let old = "(seed:1,steps:[(disabled:false,mask:None,typ:LandMass((land_proportion:0.6,water_level:0.3,plain_factor:2.5)))])";
+        let text = Project::from_ron(old).unwrap().to_ron().unwrap();
+        assert_eq!(text.matches("water_level").count(), 1, "{text}");
+        assert!(text.contains("water_level: Some(0.3)"), "{text}");
+    }
+
+    #[test]
     fn file_without_version_loads() {
         let project = Project::from_ron("(seed:1,steps:[])").unwrap();
         assert_eq!(project.version, "");
@@ -142,6 +217,8 @@ mod tests {
                     ..Default::default()
                 },
             ],
+            HeightRange::default(),
+            DEFAULT_WATER_LEVEL,
         );
         let text = project.to_ron().unwrap();
         // a 64x64 mask must not become 4096 lines
@@ -187,6 +264,8 @@ mod tests {
                     ..Default::default()
                 },
             ],
+            HeightRange::default(),
+            DEFAULT_WATER_LEVEL,
         );
         let text = project.to_ron().unwrap();
         assert_eq!(Project::from_ron(&text).unwrap(), project);

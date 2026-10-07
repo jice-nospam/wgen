@@ -12,7 +12,8 @@ pub struct Panel3dViewConf {
     pub zoom: f32,
     /// vertical scale to apply to the heightmap
     pub hscale: f32,
-    /// water plane z position
+    /// water plane height in scene units (`water_level × ZSCALE`), written by `MyApp` from the
+    /// project's water level
     pub water_level: f32,
     /// do we display the water plane ?
     pub show_water: bool,
@@ -89,13 +90,7 @@ impl Panel3dView {
             ui.horizontal(|ui| {
                 ui.label("Show water plane");
                 ui.checkbox(&mut self.conf.show_water, "");
-                ui.label("Water height");
-                ui.add_enabled(
-                    self.conf.show_water,
-                    egui::DragValue::new(&mut self.conf.water_level)
-                        .speed(0.1)
-                        .range(std::ops::RangeInclusive::new(0.0, 100.0)),
-                );
+
                 ui.label("Show skybox");
                 ui.checkbox(&mut self.conf.show_skybox, "");
             });

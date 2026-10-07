@@ -55,8 +55,14 @@ pub struct WaterErosionConf {
     deposition: f32,
     inertia: f32,
     radius: f32,
-    #[serde(default)]
-    water_level: f32,
+    /// the per-step water level of files older than the project's; read, never written
+    #[serde(
+        rename = "water_level",
+        default,
+        skip_serializing,
+        deserialize_with = "super::legacy_water_level"
+    )]
+    pub(crate) legacy_water_level: Option<f32>,
     #[serde(default = "default_work_res")]
     work_res: u32,
 }
@@ -72,7 +78,7 @@ impl Default for WaterErosionConf {
             deposition: DEFAULT_DEPOSITION,
             inertia: DEFAULT_INERTIA,
             radius: DEFAULT_RADIUS,
-            water_level: 0.0,
+            legacy_water_level: None,
             work_res: DEFAULT_WORK_RES,
         }
     }
@@ -146,16 +152,9 @@ pub fn render_water_erosion(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
     render_water_row(ui, conf);
 }
 
-/// water level and the resolution the drops run at
+/// the resolution the drops run at
 fn render_water_row(ui: &mut egui::Ui, conf: &mut WaterErosionConf) {
     ui.horizontal(|ui| {
-        ui.label("water level")
-            .on_hover_text("Sea level: drops stop when they reach it and none start below it");
-        ui.add(
-            egui::DragValue::new(&mut conf.water_level)
-                .speed(0.01)
-                .range(-10.0..=10.0),
-        );
         ui.label("resolution")
             .on_hover_text("Level of detail the erosion works at: higher = finer, much slower");
         egui::ComboBox::from_id_salt("work_res")
@@ -179,12 +178,15 @@ struct DropParams {
     scale: f32,
     /// erosion brush : (dx, dy, weight), weights summing to 1
     kernel: Vec<(i32, i32, f32)>,
+    /// drops stop when they reach it and none start below it
+    water_level: f32,
 }
 
 impl DropParams {
-    fn new(conf: &WaterErosionConf, size: (usize, usize), scale: f32) -> Self {
+    fn new(conf: &WaterErosionConf, water_level: f32, size: (usize, usize), scale: f32) -> Self {
         let radius = (conf.radius * scale).max(1.0);
         Self {
+            water_level,
             size,
             path_len: ((MAX_PATH_LENGTH as f32 * scale).round() as usize).max(4),
             scale,
@@ -218,18 +220,19 @@ pub fn gen_water_erosion(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &WaterErosionConf,
+    water_level: f32,
     progress: &mut Progress,
 ) {
     let work = work_size(size, conf.work_res as usize);
     let scale = work.0.max(work.1) as f32 / REFERENCE_RES;
     if work == size {
-        erode_particles(seed, size, hmap, conf, scale, progress);
+        erode_particles(seed, size, hmap, conf, water_level, scale, progress);
         return;
     }
     // erode a reduced copy, then add the height delta back onto the full map
     let small = downsample(hmap, size, work);
     let mut eroded = small.clone();
-    if !erode_particles(seed, work, &mut eroded, conf, scale, progress) {
+    if !erode_particles(seed, work, &mut eroded, conf, water_level, scale, progress) {
         // cancelled : leave the map untouched
         return;
     }
@@ -245,6 +248,7 @@ fn erode_particles(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &WaterErosionConf,
+    water_level: f32,
     scale: f32,
     progress: &mut Progress,
 ) -> bool {
@@ -252,7 +256,7 @@ fn erode_particles(
         return true;
     }
     let mut rng = StdRng::seed_from_u64(seed);
-    let params = DropParams::new(conf, size, scale);
+    let params = DropParams::new(conf, water_level, size, scale);
     // maximum drop count is 2 per cell
     let drop_count = ((size.1 * 2) as f32 * conf.drop_amount) as usize;
     // use a double loop to check progress every size.0 drops
@@ -352,7 +356,7 @@ fn simulate_drop(
 ) {
     let size = params.size;
     let mut off = start.0 + start.1 * size.0;
-    if hmap[off] < conf.water_level {
+    if hmap[off] < params.water_level {
         return;
     }
     let mut drop = Drop {
@@ -404,7 +408,7 @@ fn simulate_drop(
         off = drop.grid_offset(size.0);
         // interpolate height at new drop position
         let newh = bilinear(hmap, drop.pos.0, drop.pos.1, size);
-        if newh < conf.water_level {
+        if newh < params.water_level {
             // the drop reached the water : its sediment is lost
             break;
         }
@@ -457,8 +461,19 @@ mod tests {
     }
 
     fn erode(seed: u64, size: (usize, usize), conf: &WaterErosionConf) -> Vec<f32> {
+        erode_at(seed, size, conf, 0.0)
+    }
+
+    fn erode_at(seed: u64, size: (usize, usize), conf: &WaterErosionConf, water: f32) -> Vec<f32> {
         let mut hmap = pyramid(size);
-        gen_water_erosion(seed, size, &mut hmap, conf, &mut Progress::headless());
+        gen_water_erosion(
+            seed,
+            size,
+            &mut hmap,
+            conf,
+            water,
+            &mut Progress::headless(),
+        );
         hmap
     }
 
@@ -488,11 +503,8 @@ mod tests {
 
     #[test]
     fn water_level_above_the_map_leaves_it_untouched() {
-        let conf = WaterErosionConf {
-            water_level: 100.0,
-            ..Default::default()
-        };
-        assert_eq!(erode(7, (16, 16), &conf), pyramid((16, 16)));
+        let conf = WaterErosionConf::default();
+        assert_eq!(erode_at(7, (16, 16), &conf, 100.0), pyramid((16, 16)));
     }
 
     #[test]
@@ -519,7 +531,7 @@ mod tests {
         let old = "(drop_amount: 0.5, erosion_strength: 0.08, evaporation: 0.05, capacity: 6.0,
                     min_slope: 0.05, deposition: 0.06, inertia: 0.5, radius: 4.0)";
         let conf: WaterErosionConf = ron::from_str(old).unwrap();
-        assert_eq!(conf.water_level, 0.0);
+        assert_eq!(conf.legacy_water_level, None);
         assert_eq!(conf.work_res, 512);
     }
 
@@ -552,7 +564,14 @@ mod tests {
 
         let input64 = blow_up(&input16, (16, 16), 4);
         let mut out64 = input64.clone();
-        gen_water_erosion(11, (64, 64), &mut out64, &conf, &mut Progress::headless());
+        gen_water_erosion(
+            11,
+            (64, 64),
+            &mut out64,
+            &conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        );
 
         for y in 0..64 {
             for x in 0..64 {
@@ -590,7 +609,14 @@ mod tests {
         };
         let input = pyramid((64, 32));
         let mut out = input.clone();
-        gen_water_erosion(5, (64, 32), &mut out, &conf, &mut Progress::headless());
+        gen_water_erosion(
+            5,
+            (64, 32),
+            &mut out,
+            &conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        );
         assert_ne!(
             out, input,
             "erosion on a non-square working grid did nothing"

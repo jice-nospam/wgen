@@ -13,7 +13,6 @@ const DEFAULT_STRENGTH: f32 = 0.6;
 const DEFAULT_TALUS: f32 = 0.2;
 const DEFAULT_UPLIFT: f32 = 0.0;
 const DEFAULT_ITERATIONS: u32 = 50;
-const DEFAULT_WATER_LEVEL: f32 = 0.0;
 const DEFAULT_WORK_RES: u32 = 512;
 /// the map side the parameters are expressed for
 const REFERENCE_RES: f32 = 512.0;
@@ -44,8 +43,14 @@ pub struct FluvialErosionConf {
     pub uplift: f32,
     /// implicit time steps
     pub iterations: u32,
-    /// cells at or below this height are the sea : fixed, and where every river ends
-    pub water_level: f32,
+    /// the per-step water level of files older than the project's; read, never written
+    #[serde(
+        rename = "water_level",
+        default,
+        skip_serializing,
+        deserialize_with = "super::legacy_water_level"
+    )]
+    pub(crate) legacy_water_level: Option<f32>,
     /// longest side of the grid the iterations run on
     pub work_res: u32,
 }
@@ -57,7 +62,7 @@ impl Default for FluvialErosionConf {
             talus: DEFAULT_TALUS,
             uplift: DEFAULT_UPLIFT,
             iterations: DEFAULT_ITERATIONS,
-            water_level: DEFAULT_WATER_LEVEL,
+            legacy_water_level: None,
             work_res: DEFAULT_WORK_RES,
         }
     }
@@ -100,13 +105,6 @@ fn render_fluvial_row(ui: &mut egui::Ui, conf: &mut FluvialErosionConf) {
                 .speed(0.0001)
                 .range(0.0..=0.01),
         );
-        ui.label("water level")
-            .on_hover_text("Sea level: rivers end here and the sea itself never changes");
-        ui.add(
-            egui::DragValue::new(&mut conf.water_level)
-                .speed(0.01)
-                .range(-10.0..=10.0),
-        );
         ui.label("resolution")
             .on_hover_text("Level of detail the rivers are carved at: higher = finer, much slower");
         egui::ComboBox::from_id_salt("fluvial_work_res")
@@ -133,20 +131,20 @@ pub(crate) struct FluvialParams {
 }
 
 impl FluvialParams {
-    fn new(conf: &FluvialErosionConf, scale: f32) -> Self {
+    fn new(conf: &FluvialErosionConf, water_level: f32, scale: f32) -> Self {
         let talus_conf = ThermalErosionConf {
             talus: conf.talus,
             strength: TALUS_STRENGTH,
             iterations: 1,
-            water_level: conf.water_level,
+            legacy_water_level: None,
             work_res: conf.work_res,
         };
         Self {
             k: STRENGTH_MAX * conf.strength * scale,
             uplift: conf.uplift,
             iterations: (conf.iterations as usize).max(1),
-            water_level: conf.water_level,
-            talus: ThermalParams::new(&talus_conf, scale),
+            water_level,
+            talus: ThermalParams::new(&talus_conf, water_level, scale),
         }
     }
 }
@@ -155,19 +153,22 @@ impl FluvialParams {
 pub(crate) fn fluvial_plan(
     size: (usize, usize),
     conf: &FluvialErosionConf,
+    water_level: f32,
 ) -> ((usize, usize), FluvialParams) {
     let work = work_size(size, conf.work_res as usize);
     let scale = work.0.max(work.1) as f32 / REFERENCE_RES;
-    (work, FluvialParams::new(conf, scale))
+    (work, FluvialParams::new(conf, water_level, scale))
 }
 
+/// cells at or below `water_level` are the sea: fixed, and where every river ends
 pub fn gen_fluvial_erosion(
     size: (usize, usize),
     hmap: &mut [f32],
     conf: &FluvialErosionConf,
+    water_level: f32,
     progress: &mut Progress,
 ) {
-    let (work, params) = fluvial_plan(size, conf);
+    let (work, params) = fluvial_plan(size, conf, water_level);
     if work == size {
         incise_iterations(size, hmap, &params, progress);
         return;
@@ -326,7 +327,13 @@ mod tests {
 
     fn erode(size: (usize, usize), hmap: &[f32], conf: &FluvialErosionConf) -> Vec<f32> {
         let mut out = hmap.to_vec();
-        gen_fluvial_erosion(size, &mut out, conf, &mut Progress::headless());
+        gen_fluvial_erosion(
+            size,
+            &mut out,
+            conf,
+            conf.legacy_water_level.unwrap_or(0.0),
+            &mut Progress::headless(),
+        );
         out
     }
 
@@ -351,7 +358,7 @@ mod tests {
     fn flat_map_at_the_base_level_stays_flat() {
         let flat = vec![0.5; 256];
         let conf = FluvialErosionConf {
-            water_level: 0.5,
+            legacy_water_level: Some(0.5),
             ..conf16()
         };
         let out = erode(SIZE, &flat, &conf);
@@ -364,7 +371,7 @@ mod tests {
         let conf = FluvialErosionConf {
             strength: 1.0,
             iterations: 1,
-            water_level: -1.0,
+            legacy_water_level: Some(-1.0),
             ..conf16()
         };
         let out = erode(SIZE, &input, &conf);
@@ -451,7 +458,7 @@ mod tests {
         let conf = FluvialErosionConf {
             strength: 1.0,
             iterations: 10,
-            water_level: 0.0,
+            legacy_water_level: Some(0.0),
             ..conf16()
         };
         let out = erode(SIZE, &input, &conf);
@@ -471,7 +478,7 @@ mod tests {
         let conf = FluvialErosionConf {
             strength: 1.0,
             iterations: 20,
-            water_level: 0.0,
+            legacy_water_level: Some(0.0),
             ..conf16()
         };
         let out = erode(SIZE, &input, &conf);
@@ -489,7 +496,7 @@ mod tests {
         let conf = FluvialErosionConf {
             strength: 1.0,
             iterations: 10,
-            water_level: 4.0,
+            legacy_water_level: Some(4.0),
             ..conf16()
         };
         let out = erode(SIZE, &input, &conf);
@@ -513,10 +520,10 @@ mod tests {
     #[test]
     fn params_scale_with_the_working_grid() {
         let conf = FluvialErosionConf::default();
-        let full = FluvialParams::new(&conf, 1.0);
+        let full = FluvialParams::new(&conf, conf.legacy_water_level.unwrap_or(0.0), 1.0);
         assert_eq!(full.k, STRENGTH_MAX * conf.strength);
         assert_eq!(full.iterations, conf.iterations as usize);
-        let quarter = FluvialParams::new(&conf, 0.25);
+        let quarter = FluvialParams::new(&conf, conf.legacy_water_level.unwrap_or(0.0), 0.25);
         assert_eq!(quarter.k, full.k * 0.25);
         assert_eq!(quarter.iterations, full.iterations);
         assert_eq!(quarter.uplift, conf.uplift);
@@ -584,6 +591,7 @@ mod tests {
             SIZE,
             &mut cancelled,
             &conf,
+            conf.legacy_water_level.unwrap_or(0.0),
             &mut Progress::preview(tx, 1.0, || true),
         );
         assert_eq!(cancelled, input);
@@ -625,7 +633,7 @@ mod tests {
             talus: 0.4,
             uplift: 0.002,
             iterations: 12,
-            water_level: 0.1,
+            legacy_water_level: None,
             work_res: 1024,
         };
         let text = ron::to_string(&conf).unwrap();
@@ -648,7 +656,7 @@ mod tests {
         let input = step();
         let conf = FluvialErosionConf {
             strength: 0.0,
-            water_level: -1.0,
+            legacy_water_level: Some(-1.0),
             ..conf16()
         };
         assert_eq!(erode(SIZE, &input, &conf), input);
@@ -661,7 +669,7 @@ mod tests {
             strength: 0.0,
             talus: 1.0,
             iterations: 1,
-            water_level: -1.0,
+            legacy_water_level: Some(-1.0),
             ..conf16()
         };
         let out = erode(SIZE, &input, &conf);
@@ -715,12 +723,31 @@ mod tests {
     #[test]
     fn talus_passes_follow_the_grid() {
         let conf = FluvialErosionConf::default();
-        assert_eq!(FluvialParams::new(&conf, 4.0).talus.passes, 4);
-        assert_eq!(FluvialParams::new(&conf, 1.0).talus.passes, 1);
-        assert_eq!(FluvialParams::new(&conf, 0.25).talus.passes, 1);
         assert_eq!(
-            FluvialParams::new(&conf, 0.25).talus.threshold,
-            4.0 * FluvialParams::new(&conf, 1.0).talus.threshold
+            FluvialParams::new(&conf, conf.legacy_water_level.unwrap_or(0.0), 4.0)
+                .talus
+                .passes,
+            4
+        );
+        assert_eq!(
+            FluvialParams::new(&conf, conf.legacy_water_level.unwrap_or(0.0), 1.0)
+                .talus
+                .passes,
+            1
+        );
+        assert_eq!(
+            FluvialParams::new(&conf, conf.legacy_water_level.unwrap_or(0.0), 0.25)
+                .talus
+                .passes,
+            1
+        );
+        assert_eq!(
+            FluvialParams::new(&conf, conf.legacy_water_level.unwrap_or(0.0), 0.25)
+                .talus
+                .threshold,
+            4.0 * FluvialParams::new(&conf, conf.legacy_water_level.unwrap_or(0.0), 1.0)
+                .talus
+                .threshold
         );
     }
 }

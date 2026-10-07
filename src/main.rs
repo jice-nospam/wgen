@@ -8,6 +8,7 @@ mod exporter;
 mod fps;
 mod generators;
 mod gpu;
+mod height_range;
 mod mask;
 mod panel_2dview;
 mod panel_3dview;
@@ -41,6 +42,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use height_range::HeightRange;
 use panel_2dview::{Panel2dAction, Panel2dView};
 use panel_3dview::Panel3dView;
 use panel_export::PanelExport;
@@ -236,6 +238,7 @@ struct MyApp {
     export_step_names: Vec<String>,
     /// the heightmap the 3D terrain must be rebuilt from, taken by `preview3d::update_terrain`
     pending_terrain: Option<ExportMap>,
+
     /// the generators' compute device, shared with the generator thread and every export thread
     gpu: Option<Arc<GpuContext>>,
     // ui widgets
@@ -293,6 +296,7 @@ impl MyApp {
             invalidation,
             export_step_names: Vec::new(),
             pending_terrain: None,
+
             panel_2d,
             panel_3d: Panel3dView::new(image_size as f32),
             progress: 1.0,
@@ -323,6 +327,8 @@ impl MyApp {
             Some(g) if self.gen_panel.use_gpu => Backend::Gpu(g.clone()),
             _ => Backend::Cpu,
         };
+        let height_range = self.gen_panel.height_range;
+        let water_level = self.gen_panel.water_level;
         thread::spawn(move || {
             // a panic must still end the export, or the export panel stays disabled forever
             let res = catch_unwind(AssertUnwindSafe(|| {
@@ -333,6 +339,8 @@ impl MyApp {
                     tx.clone(),
                     min_progress_step,
                     backend,
+                    height_range,
+                    water_level,
                 )
             }))
             .unwrap_or_else(|payload| Err(panic_message(payload.as_ref())));
@@ -373,6 +381,13 @@ impl MyApp {
                 .unwrap();
         }
         self.gen_panel.is_running = true;
+    }
+    /// re-renders the 2D preview through the new height window; the 3D preview is absolute and
+    /// nothing is regenerated
+    fn set_height_range(&mut self, range: HeightRange) {
+        self.panel_2d.set_height_range(range);
+        self.panel_2d
+            .refresh(self.image_size, self.preview_size as u32, None);
     }
     fn set_seed(&mut self, new_seed: u64) {
         self.seed = new_seed;
@@ -418,6 +433,10 @@ impl MyApp {
                         Ok(project) => {
                             self.gen_panel.load_project(project);
                             self.main2wgen_tx.send(WorldGenCommand::Clear).unwrap();
+                            self.main2wgen_tx
+                                .send(WorldGenCommand::SetWaterLevel(self.gen_panel.water_level))
+                                .unwrap();
+                            self.panel_2d.set_height_range(self.gen_panel.height_range);
                             self.set_seed(self.gen_panel.seed);
                         }
                         Err(msg) => {
@@ -465,6 +484,15 @@ impl MyApp {
                     }
                     Some(GeneratorAction::SetBackend(on)) => {
                         self.set_backend(on);
+                    }
+                    Some(GeneratorAction::SetHeightRange(range)) => {
+                        self.set_height_range(range);
+                    }
+                    Some(GeneratorAction::SetWaterLevel(level)) => {
+                        self.main2wgen_tx
+                            .send(WorldGenCommand::SetWaterLevel(level))
+                            .unwrap();
+                        self.regen(None, 0);
                     }
                     Some(GeneratorAction::Regen { delete, from }) => {
                         self.regen(delete, from);
@@ -533,6 +561,7 @@ impl MyApp {
                 });
             });
         vp.conf = self.panel_3d.conf();
+        vp.conf.water_level = self.gen_panel.water_level * preview3d::ZSCALE;
     }
     fn handle_threads_messages(&mut self) {
         let rx = self.thread2main_rx.get_mut().unwrap();
@@ -557,6 +586,7 @@ impl MyApp {
                 }
                 self.panel_2d
                     .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
+                self.gen_panel.set_map_range(hmap.get_min_max());
                 self.pending_terrain = Some(hmap);
                 self.gen_panel.selected_step = self.gen_panel.steps.len().saturating_sub(1);
                 self.gen_panel.is_running = false;

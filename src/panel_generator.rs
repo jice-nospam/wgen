@@ -2,7 +2,8 @@ use egui::{emath::TSTransform, Color32, CursorIcon, Id, LayerId, Order, Sense, U
 
 use crate::{
     generators::HillsConf,
-    project::Project,
+    height_range::HeightRange,
+    project::{Project, DEFAULT_WATER_LEVEL},
     worldgen::{Step, StepType},
     MASK_SIZE,
 };
@@ -22,6 +23,10 @@ pub enum GeneratorAction {
     Clear,
     /// run the generators that have a GPU twin on the GPU (true) or on the CPU (false)
     SetBackend(bool),
+    /// the window of raw heights the previews and the export map to 0..1 changed
+    SetHeightRange(HeightRange),
+    /// the project's sea level changed: every step may read it
+    SetWaterLevel(f32),
 }
 
 pub struct PanelGenerator {
@@ -41,10 +46,16 @@ pub struct PanelGenerator {
     hovered: bool,
     /// random number generator's seed
     pub seed: u64,
+    /// raw heights shown and exported as 0..1
+    pub height_range: HeightRange,
+    /// sea level in raw height units
+    pub water_level: f32,
     /// the compute device's adapter name; `None` when the generators have no GPU
     pub gpu_name: Option<String>,
     /// the `Use GPU` checkbox
     pub use_gpu: bool,
+    /// the last generated map's raw height range, shown next to the height window
+    map_range: (f32, f32),
 }
 
 impl Default for PanelGenerator {
@@ -61,8 +72,11 @@ impl Default for PanelGenerator {
             move_to_pos: 0,
             hovered: false,
             seed: 0xdeadbeef,
+            height_range: HeightRange::default(),
+            water_level: DEFAULT_WATER_LEVEL,
             gpu_name: None,
             use_gpu: false,
+            map_range: (0.0, 0.0),
         }
     }
 }
@@ -118,13 +132,20 @@ impl PanelGenerator {
         Some(i)
     }
     pub fn load_project(&mut self, project: Project) {
+        self.water_level = project.water_level();
         self.steps = project.steps;
         self.seed = project.seed;
+        self.height_range = project.height_range;
         self.selected_step = 0;
         self.exit_mask_mode();
     }
     pub fn project(&self) -> Project {
-        Project::new(self.seed, self.steps.clone())
+        Project::new(
+            self.seed,
+            self.steps.clone(),
+            self.height_range,
+            self.water_level,
+        )
     }
     fn render_header(&mut self, ui: &mut egui::Ui, progress: f32) -> Option<GeneratorAction> {
         let mut action = None;
@@ -152,7 +173,63 @@ impl PanelGenerator {
                 action = Some(GeneratorAction::SetSeed(self.seed));
             }
         });
-        action.or(self.render_gpu_row(ui))
+        let world = self.render_world_rows(ui);
+        let gpu = self.render_gpu_row(ui);
+        action.or(world).or(gpu)
+    }
+    pub fn set_map_range(&mut self, map_range: (f32, f32)) {
+        self.map_range = map_range;
+    }
+    /// the height window (Auto or manual min / max) and the sea level
+    fn render_world_rows(&mut self, ui: &mut egui::Ui) -> Option<GeneratorAction> {
+        let old_range = self.height_range;
+        ui.horizontal(|ui| {
+            ui.label("Heights").on_hover_text(
+                "Raw heights shown and exported as lowest..highest; Auto follows the map",
+            );
+            let range = &mut self.height_range;
+            if ui.checkbox(&mut range.auto, "Auto").changed() && !range.auto {
+                (range.min, range.max) = self.map_range;
+            }
+            let manual = !range.auto;
+            ui.add_enabled(
+                manual,
+                egui::DragValue::new(&mut range.min)
+                    .speed(0.01)
+                    .prefix("min "),
+            );
+            ui.add_enabled(
+                manual,
+                egui::DragValue::new(&mut range.max)
+                    .speed(0.01)
+                    .prefix("max "),
+            );
+            range.max = range.max.max(range.min + 0.001);
+            self.render_map_range(ui);
+        });
+        let mut action = (self.height_range != old_range)
+            .then_some(GeneratorAction::SetHeightRange(self.height_range));
+        ui.horizontal(|ui| {
+            ui.label("Water level")
+                .on_hover_text("Sea level in raw heights, for every step and the 3D preview");
+            let response = ui.add(egui::DragValue::new(&mut self.water_level).speed(0.005));
+            if response.drag_stopped() || (response.changed() && !response.dragged()) {
+                action = Some(GeneratorAction::SetWaterLevel(self.water_level));
+            }
+        });
+        action
+    }
+    /// `map a..b`, flagged when a manual window clips the map
+    fn render_map_range(&self, ui: &mut egui::Ui) {
+        let (a, b) = self.map_range;
+        let range = &self.height_range;
+        let text = format!("map {a:.2}..{b:.2}");
+        if !range.auto && (a < range.min || b > range.max) {
+            ui.colored_label(ui.visuals().warn_fg_color, format!("⚠ {text}"))
+                .on_hover_text("Heights outside min..max are clamped");
+        } else {
+            ui.label(text);
+        }
     }
     /// the compute device and the `Use GPU` checkbox; nothing when there is no GPU
     fn render_gpu_row(&mut self, ui: &mut egui::Ui) -> Option<GeneratorAction> {
@@ -298,6 +375,19 @@ impl PanelGenerator {
         let mut action = None;
         let step = self.steps.get_mut(self.selected_step)?;
         step.typ.render(ui);
+        if step.mask.is_some()
+            && ui
+                .checkbox(&mut step.mask_smooth, "smooth")
+                .on_hover_text(
+                    "Reads the mask without creases between its cells — for masks that carry tall shapes",
+                )
+                .changed()
+        {
+            action = Some(GeneratorAction::Regen {
+                delete: None,
+                from: self.selected_step,
+            });
+        }
         if ui.button("Refresh").clicked() {
             action = Some(GeneratorAction::Regen {
                 delete: None,

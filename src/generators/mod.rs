@@ -28,7 +28,7 @@ pub use island::{gen_island, render_island, IslandConf};
 pub use landmass::{gen_landmass, render_landmass, LandMassConf};
 pub use mid_point::{gen_mid_point, render_mid_point, MidPointConf};
 pub use mudslide::{gen_mudslide, render_mudslide, MudSlideConf};
-pub use normalize::{gen_normalize, NormalizeConf};
+pub use normalize::{gen_normalize, render_normalize, NormalizeConf};
 pub use par_rows::par_rows;
 pub(crate) use plateau::JITTER_OCTAVES as PLATEAU_JITTER_OCTAVES;
 pub use plateau::{gen_plateau, render_plateau, PlateauConf};

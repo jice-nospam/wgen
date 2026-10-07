@@ -6,9 +6,10 @@ use crate::generators::{
     gen_fbm, gen_fluvial_erosion, gen_hills, gen_island, gen_landmass, gen_mid_point, gen_mudslide,
     gen_normalize, gen_plateau, gen_ridged, gen_thermal_erosion, gen_water_erosion, render_fbm,
     render_fluvial_erosion, render_hills, render_island, render_landmass, render_mid_point,
-    render_mudslide, render_plateau, render_ridged, render_thermal_erosion, render_water_erosion,
-    FbmConf, FluvialErosionConf, HillsConf, IslandConf, LandMassConf, MidPointConf, MudSlideConf,
-    NormalizeConf, PlateauConf, Progress, RidgedConf, ThermalErosionConf, WaterErosionConf,
+    render_mudslide, render_normalize, render_plateau, render_ridged, render_thermal_erosion,
+    render_water_erosion, FbmConf, FluvialErosionConf, HillsConf, IslandConf, LandMassConf,
+    MidPointConf, MudSlideConf, NormalizeConf, PlateauConf, Progress, RidgedConf,
+    ThermalErosionConf, WaterErosionConf,
 };
 use crate::gpu::{
     fbm::gen_fbm_gpu, fluvial_erosion::gen_fluvial_erosion_gpu, plateau::gen_plateau_gpu,
@@ -90,7 +91,7 @@ impl StepType {
             StepType::Plateau(_) => {
                 "Cut the terrain into flat stepped levels: mesas, buttes, tablelands"
             }
-            StepType::Normalize(_) => "Scale the terrain back to the 0.0-1.0 range",
+            StepType::Normalize(_) => "Scale the terrain to the min-max range",
             StepType::LandMass(_) => {
                 "Scale the terrain so that only a proportion of land is above water level"
             }
@@ -105,7 +106,7 @@ impl StepType {
             StepType::Island(_) => "Lower height on the map borders",
         }
     }
-    /// the parameter widgets of this step (nothing for Normalize)
+    /// the parameter widgets of this step
     pub fn render(&mut self, ui: &mut egui::Ui) {
         match self {
             StepType::Hills(conf) => render_hills(ui, conf),
@@ -113,7 +114,7 @@ impl StepType {
             StepType::MidPoint(conf) => render_mid_point(ui, conf),
             StepType::Ridged(conf) => render_ridged(ui, conf),
             StepType::Plateau(conf) => render_plateau(ui, conf),
-            StepType::Normalize(_) => (),
+            StepType::Normalize(conf) => render_normalize(ui, conf),
             StepType::LandMass(conf) => render_landmass(ui, conf),
             StepType::MudSlide(conf) => render_mudslide(ui, conf),
             StepType::ThermalErosion(conf) => render_thermal_erosion(ui, conf),

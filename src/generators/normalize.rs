@@ -17,3 +17,22 @@ impl Default for NormalizeConf {
 pub fn gen_normalize(hmap: &mut [f32], conf: &NormalizeConf) {
     normalize(hmap, conf.min, conf.max);
 }
+
+pub fn render_normalize(ui: &mut egui::Ui, conf: &mut NormalizeConf) {
+    ui.horizontal(|ui| {
+        ui.label("min")
+            .on_hover_text("Height of the lowest point after the step");
+        ui.add(
+            egui::DragValue::new(&mut conf.min)
+                .speed(0.01)
+                .range(0.0..=conf.max),
+        );
+        ui.label("max")
+            .on_hover_text("Height of the highest point after the step");
+        ui.add(
+            egui::DragValue::new(&mut conf.max)
+                .speed(0.01)
+                .range(conf.min..=1.0),
+        );
+    });
+}

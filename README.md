@@ -34,7 +34,7 @@ The current version features those generators :
 - Fbm : fractal brownian motion can be used to add noise to an existing terrain or as first step to generate a continent-like terrain.
 - MidPoint : square-diamond mid-point displacement generates a realistic looking heightmap
 - Ridged : ridged multifractal noise with sharp crests, the mountain counterpart of Fbm
-- Normalize : scales the heightmap back to the range 0.0..1.0. Some generators work better with a normalized heightmap. Check your heightmap values range in the 2D preview.
+- Normalize : scales the heightmap to the range min..max (default 0.0..1.0). Some generators work better with a normalized heightmap. Check your heightmap values range in the top of the generator panel.
 - LandMass : scale the terrain so that a defined proportion is above a defined water level. Also applies a x^3 curve above water level to have a nice plain/mountain ratio and can lower underwater terrain to have a crisp coast line
 - Plateau : cuts the terrain into flat stepped levels with wandering edges (mesas, buttes, tablelands)
 - ThermalErosion : crumbles steep slopes into scree, the usual companion of FluvialErosion.

@@ -1,8 +1,22 @@
-//! The project's height window: which raw heights map to 0..1 in the 2D view, to `0..ZSCALE` in
+//! The project's height window: which heights, in meters, map to 0..1 in the 2D view, to `0..ZSCALE` in
 //! the 3D mesh and to 0..1 in exported files.
 use serde::{Deserialize, Serialize};
 
 use crate::generators::get_min_max;
+
+/// meters per generator unit: generators work in units (about 0..1), every stored height is in
+/// meters. A power of two, so the conversion is exact in f32
+pub const GEN_UNIT_M: f32 = 4096.0;
+
+/// a `DragValue` showing a height stored in generator units as meters
+pub fn drag_meters(ui: &mut egui::Ui, units: &mut f32, speed_m: f32) -> egui::Response {
+    let mut m = *units * GEN_UNIT_M;
+    let response = ui.add(egui::DragValue::new(&mut m).speed(speed_m).suffix(" m"));
+    if response.changed() {
+        *units = m / GEN_UNIT_M;
+    }
+    response
+}
 
 /// `auto`: the window is the map's own min..max; otherwise `min..max`, heights outside clamped
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -16,8 +30,8 @@ impl Default for HeightRange {
     fn default() -> Self {
         Self {
             auto: true,
-            min: 0.0,
-            max: 1.0,
+            min: -200.0,
+            max: 4096.0,
         }
     }
 }
@@ -66,6 +80,13 @@ mod tests {
         min: 0.0,
         max: 1.0,
     };
+
+    #[test]
+    fn default_window_is_minus_200_to_4096() {
+        let r = HeightRange::default();
+        assert!(r.auto);
+        assert_eq!((r.min, r.max), (-200.0, 4096.0));
+    }
 
     #[test]
     fn auto_bounds_are_the_map_range() {

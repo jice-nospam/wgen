@@ -1,4 +1,5 @@
 use noise::{NoiseFn, RidgedMulti};
+use crate::height_range::drag_meters;
 use serde::{Deserialize, Serialize};
 
 use super::noise_field::{noise_coef, ridged_stream, virtual_coords, Warp};
@@ -48,11 +49,8 @@ pub fn render_ridged(ui: &mut egui::Ui, conf: &mut RidgedConf) {
         );
         ui.label("scale")
             .on_hover_text("Height of the highest crests");
-        ui.add(
-            egui::DragValue::new(&mut conf.scale)
-                .speed(0.01)
-                .range(0.01..=10.0),
-        );
+        drag_meters(ui, &mut conf.scale, 1.0);
+        conf.scale = conf.scale.clamp(0.0, 10.0);
     });
     ui.horizontal(|ui| {
         ui.label("fold %").on_hover_text(

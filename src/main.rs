@@ -237,7 +237,9 @@ struct MyApp {
     /// labels of the steps being exported, captured when the export started
     export_step_names: Vec<String>,
     /// the heightmap the 3D terrain must be rebuilt from, taken by `preview3d::update_terrain`
-    pending_terrain: Option<ExportMap>,
+    pending_terrain: Option<(ExportMap, preview3d::Vertical)>,
+    /// the 3D preview's current vertical mapping, matching the last `pending_terrain`
+    vertical: preview3d::Vertical,
 
     /// the generators' compute device, shared with the generator thread and every export thread
     gpu: Option<Arc<GpuContext>>,
@@ -296,6 +298,7 @@ impl MyApp {
             invalidation,
             export_step_names: Vec::new(),
             pending_terrain: None,
+            vertical: preview3d::Vertical::absolute(),
 
             panel_2d,
             panel_3d: Panel3dView::new(image_size as f32),
@@ -561,7 +564,7 @@ impl MyApp {
                 });
             });
         vp.conf = self.panel_3d.conf();
-        vp.conf.water_level = self.gen_panel.water_level * preview3d::ZSCALE;
+        vp.conf.water_level = self.vertical.scene(self.gen_panel.water_level);
     }
     fn handle_threads_messages(&mut self) {
         let rx = self.thread2main_rx.get_mut().unwrap();
@@ -584,10 +587,12 @@ impl MyApp {
                 if generation != self.generation {
                     return;
                 }
+                self.panel_2d.set_stretch(false);
                 self.panel_2d
                     .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
                 self.gen_panel.set_map_range(hmap.get_min_max());
-                self.pending_terrain = Some(hmap);
+                self.vertical = preview3d::Vertical::absolute();
+                self.pending_terrain = Some((hmap, self.vertical));
                 self.gen_panel.selected_step = self.gen_panel.steps.len().saturating_sub(1);
                 self.gen_panel.is_running = false;
                 self.progress = 1.0;
@@ -596,6 +601,7 @@ impl MyApp {
                 if generation != self.generation {
                     return;
                 }
+                self.panel_2d.set_stretch(false);
                 if let Some(ref hmap) = hmap {
                     self.panel_2d
                         .refresh(self.image_size, self.preview_size as u32, Some(hmap));
@@ -608,9 +614,12 @@ impl MyApp {
                 if generation != self.generation {
                     return;
                 }
-                // display heightmap from a specific step in the 2d preview
+                // display heightmap from a specific step, stretched to its own range
+                self.panel_2d.set_stretch(true);
                 self.panel_2d
                     .refresh(self.image_size, self.preview_size as u32, Some(&hmap));
+                self.vertical = preview3d::Vertical::stretched(hmap.borrow());
+                self.pending_terrain = Some((hmap, self.vertical));
             }
             ThreadMessage::GeneratorError(msg) => {
                 let err_msg = format!("Error while generating heightmap : {}", msg);

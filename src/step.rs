@@ -16,6 +16,7 @@ use crate::gpu::{
     fbm::gen_fbm_gpu, fluvial_erosion::gen_fluvial_erosion_gpu, plateau::gen_plateau_gpu,
     ridged::gen_ridged_gpu, thermal_erosion::gen_thermal_erosion_gpu, Backend,
 };
+use crate::height_range::GEN_UNIT_M;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 /// Each value contains its own configuration
@@ -136,12 +137,28 @@ impl StepType {
             StepType::Bend(conf) => render_bend(ui, conf),
         }
     }
-    /// runs the generator on `h`, which holds the previous step's output; a cancelled
+    /// runs the generator on `h`, in meters, which holds the previous step's output: converts
+    /// `h` and `water_level` to generator units, runs `run_units`, converts `h` back to meters
+    pub fn run(
+        &self,
+        seed: u64,
+        size: (usize, usize),
+        h: &mut [f32],
+        progress: &mut Progress,
+        backend: &Backend,
+        water_level: f32,
+    ) {
+        let to_units = 1.0 / GEN_UNIT_M;
+        h.iter_mut().for_each(|v| *v *= to_units);
+        self.run_units(seed, size, h, progress, backend, water_level * to_units);
+        h.iter_mut().for_each(|v| *v *= GEN_UNIT_M);
+    }
+    /// runs the generator on `h`, in generator units; a cancelled
     /// `progress` makes the generator return early with `h` in an unspecified state.
     /// A generator with a GPU twin runs it when `backend` offers a context, and falls back to
     /// the CPU generator when the twin fails before writing anything. `water_level` is the
     /// project's sea level, read by the generators that have a sea
-    pub fn run(
+    fn run_units(
         &self,
         seed: u64,
         size: (usize, usize),
@@ -265,6 +282,24 @@ mod tests {
     }
 
     #[test]
+    fn run_is_units_times_gen_unit() {
+        let conf = FbmConf::default();
+        let mut meters = vec![0.0; 16 * 16];
+        let mut units = meters.clone();
+        StepType::Fbm(conf.clone()).run(
+            3,
+            (16, 16),
+            &mut meters,
+            &mut Progress::headless(),
+            &Backend::Cpu,
+            0.0,
+        );
+        gen_fbm(3, (16, 16), &mut units, &conf, &mut Progress::headless());
+        let expected: Vec<f32> = units.iter().map(|v| v * GEN_UNIT_M).collect();
+        assert_eq!(meters, expected);
+    }
+
+    #[test]
     fn fbm_step_agrees_across_backends() {
         let Some(gpu) = crate::gpu::test_context() else {
             return;
@@ -292,7 +327,8 @@ mod tests {
             .iter()
             .zip(&on_gpu)
             .map(|(a, b)| (a - b).abs())
-            .fold(0.0f32, f32::max);
+            .fold(0.0f32, f32::max)
+            / GEN_UNIT_M;
         assert!(diff <= 2e-3, "max |cpu - gpu| = {diff}");
     }
 
@@ -302,7 +338,10 @@ mod tests {
             return;
         };
         let step = StepType::ThermalErosion(ThermalErosionConf::default());
-        let input = crate::generators::calib::stock_map(9, (64, 64));
+        let input: Vec<f32> = crate::generators::calib::stock_map(9, (64, 64))
+            .iter()
+            .map(|v| v * GEN_UNIT_M)
+            .collect();
         let mut cpu = input.clone();
         let mut on_gpu = input.clone();
         step.run(
@@ -326,7 +365,8 @@ mod tests {
             .iter()
             .zip(&on_gpu)
             .map(|(a, b)| (a - b).abs())
-            .fold(0.0f32, f32::max);
+            .fold(0.0f32, f32::max)
+            / GEN_UNIT_M;
         assert!(diff <= 1e-4, "max |cpu - gpu| = {diff}");
     }
 
@@ -336,7 +376,10 @@ mod tests {
             return;
         };
         let step = StepType::FluvialErosion(FluvialErosionConf::default());
-        let input = crate::generators::calib::stock_map(9, (64, 64));
+        let input: Vec<f32> = crate::generators::calib::stock_map(9, (64, 64))
+            .iter()
+            .map(|v| v * GEN_UNIT_M)
+            .collect();
         let mut cpu = input.clone();
         let mut on_gpu = input.clone();
         step.run(
@@ -402,7 +445,9 @@ mod tests {
     #[test]
     fn thermal_reads_the_world_water_level() {
         let step = StepType::ThermalErosion(crate::generators::ThermalErosionConf::default());
-        let input: Vec<f32> = (0..256).map(|i| (i % 16) as f32 * 0.3).collect();
+        let input: Vec<f32> = (0..256)
+            .map(|i| (i % 16) as f32 * 0.3 * GEN_UNIT_M)
+            .collect();
         let run = |water: f32| {
             let mut h = input.clone();
             step.run(
@@ -415,7 +460,7 @@ mod tests {
             );
             h
         };
-        assert_ne!(run(0.0), run(0.5));
+        assert_ne!(run(0.0), run(0.5 * GEN_UNIT_M));
     }
 
     #[test]

@@ -18,6 +18,10 @@ pub struct Panel2dView {
     img: ColorImage,
     /// the project's height window
     height_range: HeightRange,
+    /// a step's map is shown: the window is that map's own min..max, whatever the project's
+    stretch: bool,
+    /// the heights mapped black..white by the last refresh
+    shown_range: (f32, f32),
     /// are we displaying the mask editor ?
     mask_mode: bool,
     /// size of the preview canvas in pixels
@@ -45,6 +49,8 @@ impl Panel2dView {
         let mut panel = Panel2dView {
             img: ColorImage::filled([image_size, image_size], Color32::BLACK),
             height_range: HeightRange::default(),
+            stretch: false,
+            shown_range: (0.0, 0.0),
             image_size,
             mask_mode: false,
             live_preview: true,
@@ -80,6 +86,22 @@ impl Panel2dView {
     pub fn set_height_range(&mut self, height_range: HeightRange) {
         self.height_range = height_range;
     }
+    /// the next refreshes stretch the map to its own range (a step's map) or use the project's
+    /// window (the final result)
+    pub fn set_stretch(&mut self, on: bool) {
+        self.stretch = on;
+    }
+    /// the window the image is mapped through
+    fn shown_window(&self) -> HeightRange {
+        if self.stretch {
+            HeightRange {
+                auto: true,
+                ..self.height_range
+            }
+        } else {
+            self.height_range
+        }
+    }
     /// re-renders the preview image; the mask editor, if shown, keeps its mask on top of the new image
     pub fn refresh(&mut self, image_size: usize, preview_size: u32, hmap: Option<&ExportMap>) {
         self.image_size = image_size;
@@ -91,7 +113,9 @@ impl Panel2dView {
             self.last_hmap = Some(hmap.clone());
         }
         if let Some(hmap) = &self.last_hmap {
-            let (min, coef) = self.height_range.unit(hmap.borrow());
+            let window = self.shown_window();
+            self.shown_range = window.bounds(hmap.borrow());
+            let (min, coef) = window.unit(hmap.borrow());
             let mut idx = 0;
             for y in 0..image_size {
                 let py = ((y * preview_size as usize) as f32 / image_size as f32) as usize;
@@ -137,6 +161,8 @@ impl Panel2dView {
                 if let Some(handle) = &self.ui_img {
                     ui.image((handle.id(), handle.size_vec2()));
                 }
+                let (lo, hi) = self.shown_range;
+                ui.label(format!("Preview range: {lo:.0}..{hi:.0} m"));
             });
         }
         ui.label(format!("FPS : {}", self.fps_counter.fps()));

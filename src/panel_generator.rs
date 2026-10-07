@@ -184,35 +184,33 @@ impl PanelGenerator {
     fn render_world_rows(&mut self, ui: &mut egui::Ui) -> Option<GeneratorAction> {
         let old_range = self.height_range;
         ui.horizontal(|ui| {
-            ui.label("Heights").on_hover_text(
-                "Raw heights shown and exported as lowest..highest; Auto follows the map",
+            ui.label("Heights(m)").on_hover_text(
+                "Heights in meters shown and exported as lowest..highest; Auto follows the map",
             );
             let range = &mut self.height_range;
-            if ui.checkbox(&mut range.auto, "Auto").changed() && !range.auto {
-                (range.min, range.max) = self.map_range;
-            }
+            ui.checkbox(&mut range.auto, "Auto");
             let manual = !range.auto;
             ui.add_enabled(
                 manual,
                 egui::DragValue::new(&mut range.min)
-                    .speed(0.01)
+                    .speed(1.0)
                     .prefix("min "),
             );
             ui.add_enabled(
                 manual,
                 egui::DragValue::new(&mut range.max)
-                    .speed(0.01)
+                    .speed(1.0)
                     .prefix("max "),
             );
-            range.max = range.max.max(range.min + 0.001);
+            range.max = range.max.max(range.min + 1.0);
             self.render_map_range(ui);
         });
         let mut action = (self.height_range != old_range)
             .then_some(GeneratorAction::SetHeightRange(self.height_range));
         ui.horizontal(|ui| {
-            ui.label("Water level")
-                .on_hover_text("Sea level in raw heights, for every step and the 3D preview");
-            let response = ui.add(egui::DragValue::new(&mut self.water_level).speed(0.005));
+            ui.label("Water level(m)")
+                .on_hover_text("Sea level in meters, for every step and the 3D preview");
+            let response = ui.add(egui::DragValue::new(&mut self.water_level).speed(1.0));
             if response.drag_stopped() || (response.changed() && !response.dragged()) {
                 action = Some(GeneratorAction::SetWaterLevel(self.water_level));
             }
@@ -223,7 +221,7 @@ impl PanelGenerator {
     fn render_map_range(&self, ui: &mut egui::Ui) {
         let (a, b) = self.map_range;
         let range = &self.height_range;
-        let text = format!("map {a:.2}..{b:.2}");
+        let text = format!("map {a:.0}..{b:.0} m");
         if !range.auto && (a < range.min || b > range.max) {
             ui.colored_label(ui.visuals().warn_fg_color, format!("⚠ {text}"))
                 .on_hover_text("Heights outside min..max are clamped");

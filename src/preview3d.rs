@@ -4,8 +4,9 @@
 //! `Panel3dViewConf` to them every frame.
 //!
 //! Bevy is Y-up: a heightmap cell `(x, y)` with height `h` is the vertex `[vx, h, vy]`, the
-//! grid is centred on the origin and spans `XY_SCALE`, heights are normalised to `0..ZSCALE`.
+//! grid is centred on the origin and spans `XY_SCALE`, heights go through a `Vertical` (absolute meters or stretched to `0..ZSCALE`).
 
+use crate::height_range::GEN_UNIT_M;
 use crate::panel_3dview::Panel3dViewConf;
 use crate::terrain_material::{terrain_settings, TerrainExtension, TerrainMaterial};
 use crate::water_material::{
@@ -271,7 +272,7 @@ pub fn spawn_scene(
             },
             extension: WaterExtension {
                 settings: water_settings(&Panel3dViewConf::default()),
-                heightmap: images.add(heightmap_image((1, 1), &[0.0])),
+                heightmap: images.add(heightmap_image((1, 1), &[0.0], Vertical::absolute())),
                 ripples: images.add(water_normal_map(RIPPLE_SEED)),
             },
         })),
@@ -315,24 +316,58 @@ pub fn spawn_scene(
         });
 }
 
+/// the mapping from a height in meters to a scene height: `(h − base) · coef`
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Vertical {
+    base: f32,
+    coef: f32,
+}
+
+impl Vertical {
+    /// the project's absolute scale: 0 m at 0, `GEN_UNIT_M` at `ZSCALE`, whatever the map's
+    /// range, so a step that changes some cells moves no other vertex
+    pub fn absolute() -> Self {
+        Self {
+            base: 0.0,
+            coef: ZSCALE / GEN_UNIT_M,
+        }
+    }
+
+    /// the map's own range stretched to `0..ZSCALE`; a flat map lies at 0
+    pub fn stretched(h: &[f32]) -> Self {
+        let (min, max) = crate::generators::get_min_max(h);
+        let span = max - min;
+        Self {
+            base: min,
+            coef: if span <= f32::EPSILON { 0.0 } else { ZSCALE / span },
+        }
+    }
+
+    /// a height in meters in scene units
+    pub fn scene(&self, h: f32) -> f32 {
+        (h - self.base) * self.coef
+    }
+}
+
 /// the mapping from heightmap cells to scene positions shared by the terrain and skirt
-/// meshes: the grid centred on the origin over `XY_SCALE`, a raw height `h` at `h × ZSCALE`
-/// whatever the map's range, so a step that changes some cells moves no other vertex
+/// meshes: the grid centred on the origin over `XY_SCALE`, heights through a `Vertical`
 struct Grid {
     step: (f32, f32),
     off: (f32, f32),
-    /// the skirt's foot: the map minimum's height, never above the raw 0 plane
+    vertical: Vertical,
+    /// the skirt's foot: the map minimum's height, never above the vertical's base
     foot: f32,
 }
 
 impl Grid {
-    fn new(size: (usize, usize), h: &[f32]) -> Self {
+    fn new(size: (usize, usize), h: &[f32], vertical: Vertical) -> Self {
         let step = (XY_SCALE / size.0 as f32, XY_SCALE / size.1 as f32);
         let (min, _) = crate::generators::get_min_max(h);
         Self {
             step,
             off: (-0.5 * step.0 * size.0 as f32, -0.5 * step.1 * size.1 as f32),
-            foot: min.min(0.0) * ZSCALE,
+            vertical,
+            foot: vertical.scene(min.min(vertical.base)),
         }
     }
 
@@ -344,17 +379,17 @@ impl Grid {
         ]
     }
 
-    /// a raw height in scene units
+    /// a height in meters in scene units
     fn height(&self, h: f32) -> f32 {
-        h * ZSCALE
+        self.vertical.scene(h)
     }
 }
 
 /// the heightmap as a lit triangle mesh: one vertex per cell, `[vx, h, vy]`, the grid centred
-/// on the origin over `XY_SCALE`, heights `h × ZSCALE`, smooth normals, and
-/// `UV_1 = [h01, curv01]` for the terrain shader (`h01` the raw height, cell curvature)
-pub fn terrain_mesh(size: (usize, usize), h: &[f32]) -> Mesh {
-    let grid = Grid::new(size, h);
+/// on the origin over `XY_SCALE`, heights through `vertical`, smooth normals, and
+/// `UV_1 = [h01, curv01]` for the terrain shader (`h01` the scene height / `ZSCALE`, cell curvature)
+pub fn terrain_mesh(size: (usize, usize), h: &[f32], vertical: Vertical) -> Mesh {
+    let grid = Grid::new(size, h, vertical);
     let mut positions = Vec::with_capacity(size.0 * size.1);
     let mut uvs = Vec::with_capacity(size.0 * size.1);
     let mut uvs_b = Vec::with_capacity(size.0 * size.1);
@@ -364,7 +399,7 @@ pub fn terrain_mesh(size: (usize, usize), h: &[f32]) -> Mesh {
             let hv = grid.height(h[x + y * size.0]);
             positions.push([vx, hv, vy]);
             uvs.push([x as f32 / size.0 as f32, y as f32 / size.1 as f32]);
-            uvs_b.push([hv / ZSCALE, curvature01(size, h, (x, y), ZSCALE)]);
+            uvs_b.push([hv / ZSCALE, curvature01(size, h, (x, y), vertical.coef)]);
         }
     }
     let mut indices = Vec::with_capacity(6 * (size.0 - 1) * (size.1 - 1));
@@ -388,10 +423,10 @@ pub fn terrain_mesh(size: (usize, usize), h: &[f32]) -> Mesh {
 }
 
 /// the four vertical walls closing the terrain into a block: from every border vertex of
-/// `terrain_mesh` straight down to the map minimum, or to the raw 0 plane when the map lies above
-/// it, one flat outward normal per wall, no UVs
-pub fn skirt_mesh(size: (usize, usize), h: &[f32]) -> Mesh {
-    let grid = Grid::new(size, h);
+/// `terrain_mesh` straight down to the map minimum, or to the vertical's base when the map lies
+/// above it, one flat outward normal per wall, no UVs
+pub fn skirt_mesh(size: (usize, usize), h: &[f32], vertical: Vertical) -> Mesh {
+    let grid = Grid::new(size, h, vertical);
     let (w, d) = size;
     let mut positions = Vec::with_capacity(4 * (w + d));
     let mut normals = Vec::with_capacity(4 * (w + d));
@@ -473,7 +508,7 @@ pub fn update_terrain(
     skirt: Single<(Entity, Option<&mut Mesh3d>), (With<Skirt>, Without<Terrain>)>,
     water: Single<&MeshMaterial3d<WaterMaterial>, With<Water>>,
 ) {
-    let Some(hmap) = app.pending_terrain.take() else {
+    let Some((hmap, vertical)) = app.pending_terrain.take() else {
         return;
     };
     let size = hmap.get_size();
@@ -485,14 +520,14 @@ pub fn update_terrain(
     };
     set_mesh(
         terrain.into_inner(),
-        meshes.add(terrain_mesh(size, hmap.borrow())),
+        meshes.add(terrain_mesh(size, hmap.borrow(), vertical)),
     );
     set_mesh(
         skirt.into_inner(),
-        meshes.add(skirt_mesh(size, hmap.borrow())),
+        meshes.add(skirt_mesh(size, hmap.borrow(), vertical)),
     );
     if let Some(mut material) = water_materials.get_mut(&water.0) {
-        material.extension.heightmap = images.add(heightmap_image(size, hmap.borrow()));
+        material.extension.heightmap = images.add(heightmap_image(size, hmap.borrow(), vertical));
     }
     dirty.mark();
 }
@@ -663,8 +698,8 @@ mod tests {
     #[test]
     fn terrain_mesh_layout() {
         let size = (4, 3);
-        let h: Vec<f32> = (0..12).map(|v| v as f32 / 4.0).collect();
-        let mesh = terrain_mesh(size, &h);
+        let h: Vec<f32> = (0..12).map(|v| v as f32 / 4.0 * GEN_UNIT_M).collect();
+        let mesh = terrain_mesh(size, &h, Vertical::absolute());
         let pos = mesh
             .attribute(Mesh::ATTRIBUTE_POSITION)
             .and_then(|a| a.as_float3())
@@ -672,7 +707,7 @@ mod tests {
         assert_eq!(pos.len(), 12);
         assert_eq!(uv1(&mesh).len(), 12);
         assert_eq!(mesh.indices().unwrap().len(), 36);
-        // absolute: raw h at h × ZSCALE
+        // absolute: GEN_UNIT_M at ZSCALE
         assert_eq!(pos[0][1], 0.0);
         assert_eq!(pos[4][1], ZSCALE);
         assert_eq!(pos[11][1], 2.75 * ZSCALE);
@@ -696,8 +731,8 @@ mod tests {
         let n = 9usize;
         let at = |x: usize, y: usize| x + y * n;
         let build = |f: &dyn Fn(usize) -> f32| {
-            let h: Vec<f32> = (0..n * n).map(|i| f(i % n)).collect();
-            uv1(&terrain_mesh((n, n), &h))
+            let h: Vec<f32> = (0..n * n).map(|i| f(i % n) * GEN_UNIT_M).collect();
+            uv1(&terrain_mesh((n, n), &h, Vertical::absolute()))
         };
         // a V valley along y: concave at the floor, convex where the profile is inverted
         let valley = build(&|x| (x as f32 - 4.0).abs());
@@ -714,7 +749,7 @@ mod tests {
                 assert!((ramp[at(x, y)][1] - 0.5).abs() < 1e-5, "ramp {x} {y}");
             }
         }
-        // h01 is the raw height
+        // h01 is the scene height / ZSCALE
         assert_eq!(ramp[at(0, 4)][0], 0.0);
         assert_eq!(ramp[at(8, 4)][0], 8.0);
         assert_eq!(flat[at(4, 4)][0], 3.0);
@@ -723,11 +758,11 @@ mod tests {
     /// B-009: raising one cell moves no other vertex, whatever the map's new range
     #[test]
     fn raised_cell_keeps_untouched_cells() {
-        let base: Vec<f32> = (0..16).map(|v| v as f32 / 16.0).collect();
+        let base: Vec<f32> = (0..16).map(|v| v as f32 / 16.0 * GEN_UNIT_M).collect();
         let mut raised = base.clone();
-        raised[5] = 50.0;
+        raised[5] = 50.0 * GEN_UNIT_M;
         let heights = |h: &[f32]| -> Vec<f32> {
-            let mesh = terrain_mesh((4, 4), h);
+            let mesh = terrain_mesh((4, 4), h, Vertical::absolute());
             let pos = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap();
             pos.as_float3().unwrap().iter().map(|p| p[1]).collect()
         };
@@ -738,9 +773,45 @@ mod tests {
         assert_eq!(b[5], 50.0 * ZSCALE);
     }
 
+    /// the scene heights of the terrain's vertices and the skirt's foot
+    fn heights_and_foot(size: (usize, usize), h: &[f32], v: Vertical) -> (Vec<f32>, f32) {
+        let mesh = terrain_mesh(size, h, v);
+        let pos = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap();
+        let heights = pos.as_float3().unwrap().iter().map(|p| p[1]).collect();
+        let skirt = skirt_mesh(size, h, v);
+        let foot = skirt.attribute(Mesh::ATTRIBUTE_POSITION).unwrap().as_float3().unwrap()[1][1];
+        (heights, foot)
+    }
+
+    #[test]
+    fn absolute_puts_4096_m_at_zscale() {
+        let h = [-200.0, 0.0, 4096.0, 1000.0];
+        let (heights, foot) = heights_and_foot((2, 2), &h, Vertical::absolute());
+        assert_eq!(heights[2], ZSCALE);
+        assert_eq!(heights[0], -200.0 * ZSCALE / 4096.0);
+        assert_eq!(foot, heights[0]);
+    }
+
+    #[test]
+    fn stretched_maps_min_max_to_0_zscale() {
+        let h = [1000.0, 2000.0, 3000.0, 1500.0];
+        let (heights, foot) = heights_and_foot((2, 2), &h, Vertical::stretched(&h));
+        assert_eq!(heights[0], 0.0);
+        assert_eq!(heights[2], ZSCALE);
+        assert_eq!(foot, 0.0);
+    }
+
+    #[test]
+    fn stretched_flat_map_is_zero() {
+        let h = [1234.0; 4];
+        let (heights, foot) = heights_and_foot((2, 2), &h, Vertical::stretched(&h));
+        assert!(heights.iter().all(|&v| v == 0.0), "{heights:?}");
+        assert_eq!(foot, 0.0);
+    }
+
     #[test]
     fn terrain_mesh_flat_map_has_unit_normals() {
-        let mesh = terrain_mesh((5, 5), &[3.0; 25]);
+        let mesh = terrain_mesh((5, 5), &[3.0 * GEN_UNIT_M; 25], Vertical::absolute());
         let normals = mesh
             .attribute(Mesh::ATTRIBUTE_NORMAL)
             .and_then(|a| a.as_float3())
@@ -759,9 +830,9 @@ mod tests {
         let size = (4, 3);
         // the minimum sits inside, so no wall triangle is degenerate
         let h: Vec<f32> = (0..12)
-            .map(|v| if v == 5 { 0.0 } else { v as f32 + 1.0 })
+            .map(|v| if v == 5 { 0.0 } else { (v as f32 + 1.0) * GEN_UNIT_M })
             .collect();
-        let mesh = skirt_mesh(size, &h);
+        let mesh = skirt_mesh(size, &h, Vertical::absolute());
         let pos = mesh
             .attribute(Mesh::ATTRIBUTE_POSITION)
             .and_then(|a| a.as_float3())
@@ -777,7 +848,7 @@ mod tests {
         assert_eq!(normals.len(), pos.len());
         assert_eq!(idx.len(), 12 * (4 + 3 - 2));
         // every foot is at the map minimum, every top on the terrain's border
-        let terrain = terrain_mesh(size, &h);
+        let terrain = terrain_mesh(size, &h, Vertical::absolute());
         let tpos = terrain
             .attribute(Mesh::ATTRIBUTE_POSITION)
             .and_then(|a| a.as_float3())

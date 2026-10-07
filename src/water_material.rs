@@ -5,7 +5,7 @@
 //! uniform in step with the "3d preview" panel.
 
 use crate::panel_3dview::Panel3dViewConf;
-use crate::preview3d::{PreviewViewport, SceneDirty, Water, ZSCALE};
+use crate::preview3d::{PreviewViewport, SceneDirty, Vertical, Water, ZSCALE};
 use bevy::asset::{embedded_asset, RenderAssetUsages};
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
@@ -104,12 +104,12 @@ pub fn water_settings(conf: &Panel3dViewConf) -> WaterSettings {
     }
 }
 
-/// the heightmap as an `R32Float` texture of its own size: pixel `(x, y)` is `h01`, the raw
-/// height, the unit `terrain_mesh` scales by `ZSCALE`
-pub fn heightmap_image(size: (usize, usize), h: &[f32]) -> Image {
+/// the heightmap as an `R32Float` texture of its own size: pixel `(x, y)` is `h01`, the
+/// cell's scene height through `vertical` divided by `ZSCALE`, as in `terrain_mesh`
+pub fn heightmap_image(size: (usize, usize), h: &[f32], vertical: Vertical) -> Image {
     let mut data = Vec::with_capacity(size.0 * size.1 * 4);
     for &v in &h[..size.0 * size.1] {
-        data.extend_from_slice(&v.to_le_bytes());
+        data.extend_from_slice(&(vertical.scene(v) / ZSCALE).to_le_bytes());
     }
     Image::new(
         Extent3d {
@@ -248,6 +248,7 @@ pub fn apply_water_conf(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::height_range::GEN_UNIT_M;
 
     /// the image's pixels as row-major little-endian `f32`s
     fn pixels(image: &Image) -> Vec<f32> {
@@ -261,13 +262,23 @@ mod tests {
     }
 
     #[test]
-    fn heightmap_image_is_raw_and_row_major() {
+    fn heightmap_image_is_row_major() {
         let ramp: Vec<f32> = (0..12).map(|v| v as f32 * 3.0 - 5.0).collect();
-        let image = heightmap_image((4, 3), &ramp);
+        let meters: Vec<f32> = ramp.iter().map(|v| v * GEN_UNIT_M).collect();
+        let image = heightmap_image((4, 3), &meters, Vertical::absolute());
         assert_eq!(image.texture_descriptor.format, TextureFormat::R32Float);
         assert_eq!(image.width(), 4);
         assert_eq!(image.height(), 3);
         assert_eq!(pixels(&image), ramp);
+    }
+
+    #[test]
+    fn heightmap_image_follows_vertical() {
+        let h = [1000.0, 2000.0, 3000.0, 1000.0];
+        let image = heightmap_image((2, 2), &h, Vertical::stretched(&h));
+        assert_eq!(pixels(&image), vec![0.0, 0.5, 1.0, 0.0]);
+        let image = heightmap_image((2, 2), &h, Vertical::absolute());
+        assert_eq!(pixels(&image)[2], 3000.0 / GEN_UNIT_M);
     }
 
     #[test]

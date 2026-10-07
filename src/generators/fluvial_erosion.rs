@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::height_range::drag_meters;
 use super::thermal_erosion::{slide_pass, ThermalErosionConf, ThermalParams};
 use super::{add_upsampled, downsample, receiver_distance, work_size, FlowNet, Progress};
 
@@ -100,11 +101,8 @@ fn render_fluvial_row(ui: &mut egui::Ui, conf: &mut FluvialErosionConf) {
         ui.label("uplift").on_hover_text(
             "How much the land rises each round while the rivers cut it: higher = steeper relief",
         );
-        ui.add(
-            egui::DragValue::new(&mut conf.uplift)
-                .speed(0.0001)
-                .range(0.0..=0.01),
-        );
+        drag_meters(ui, &mut conf.uplift, 1.0);
+        conf.uplift = conf.uplift.clamp(0.0, 0.01);
         ui.label("resolution")
             .on_hover_text("Level of detail the rivers are carved at: higher = finer, much slower");
         egui::ComboBox::from_id_salt("fluvial_work_res")

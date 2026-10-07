@@ -1,4 +1,5 @@
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use crate::height_range::drag_meters;
 use serde::{Deserialize, Serialize};
 
 use super::{par_rows, Progress};
@@ -70,11 +71,8 @@ pub fn render_fbm(ui: &mut egui::Ui, conf: &mut FbmConf) {
                 .range(0.0..=200.0),
         );
         ui.label("scale").on_hover_text("Height of the bumps");
-        ui.add(
-            egui::DragValue::new(&mut conf.scale)
-                .speed(0.01)
-                .range(0.01..=10.0),
-        );
+        drag_meters(ui, &mut conf.scale, 1.0);
+        conf.scale = conf.scale.clamp(0.0, 10.0);
     });
 }
 

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::height_range::drag_meters;
 use super::normalize;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -22,17 +23,11 @@ pub fn render_normalize(ui: &mut egui::Ui, conf: &mut NormalizeConf) {
     ui.horizontal(|ui| {
         ui.label("min")
             .on_hover_text("Height of the lowest point after the step");
-        ui.add(
-            egui::DragValue::new(&mut conf.min)
-                .speed(0.01)
-                .range(f32::MIN..=conf.max),
-        );
+        drag_meters(ui, &mut conf.min, 1.0);
+        conf.min = conf.min.min(conf.max);
         ui.label("max")
             .on_hover_text("Height of the highest point after the step");
-        ui.add(
-            egui::DragValue::new(&mut conf.max)
-                .speed(0.01)
-                .range(conf.min..=f32::MAX),
-        );
+        drag_meters(ui, &mut conf.max, 1.0);
+        conf.max = conf.max.max(conf.min);
     });
 }

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::height_range::drag_meters;
 use super::{par_rows, Progress};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -18,7 +19,7 @@ pub fn render_lift(ui: &mut egui::Ui, conf: &mut LiftConf) {
         ui.label("height").on_hover_text(
             "Raises or lowers the whole map by this height; with a mask, the mask is the shape",
         );
-        ui.add(egui::DragValue::new(&mut conf.height).speed(0.01));
+        drag_meters(ui, &mut conf.height, 1.0);
     });
 }
 

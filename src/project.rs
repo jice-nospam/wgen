@@ -3,7 +3,7 @@ use std::path::Path;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 
-use crate::height_range::HeightRange;
+use crate::height_range::{HeightRange, GEN_UNIT_M};
 use crate::worldgen::Step;
 use crate::VERSION;
 
@@ -23,17 +23,22 @@ pub struct Project {
     pub seed: u64,
     /// generator steps with their configuration and masks
     pub steps: Vec<Step>,
-    /// raw heights shown and exported as 0..1
+    /// heights in meters shown and exported as 0..1
     #[serde(default)]
     pub height_range: HeightRange,
-    /// sea level in raw height units, read by every generator with a sea and by the 3D preview;
+    /// sea level in meters, read by every generator with a sea and by the 3D preview;
     /// `Some` once loaded
     #[serde(default)]
     pub water_level: Option<f32>,
+    /// heights are in meters; false in files that stored generator units
+    #[serde(default)]
+    pub meters: bool,
 }
 
-/// the water level of a project that sets none
-pub const DEFAULT_WATER_LEVEL: f32 = 0.12;
+/// the water level, in meters, of a new project
+pub const DEFAULT_WATER_LEVEL: f32 = 0.0;
+/// the water level, in generator units, of a file that stored none anywhere
+pub const LEGACY_WATER_LEVEL: f32 = 0.12;
 
 impl Project {
     pub fn new(seed: u64, steps: Vec<Step>, height_range: HeightRange, water_level: f32) -> Self {
@@ -43,6 +48,7 @@ impl Project {
             steps,
             height_range,
             water_level: Some(water_level),
+            meters: true,
         }
     }
 
@@ -69,7 +75,19 @@ impl Project {
         if project.water_level.is_none() {
             project.water_level = Some(legacy_water_level(&project.steps));
         }
+        if !project.meters {
+            project.convert_to_meters();
+        }
         Ok(project)
+    }
+
+    /// scales the heights a file stored in generator units to meters
+    fn convert_to_meters(&mut self) {
+        self.water_level = self.water_level.map(|w| w * GEN_UNIT_M);
+        self.height_range.min *= GEN_UNIT_M;
+        self.height_range.max *= GEN_UNIT_M;
+        self.meters = true;
+        crate::log("project=>heights converted to meters");
     }
 
     fn to_ron(&self) -> Result<String, String> {
@@ -80,14 +98,14 @@ impl Project {
 }
 
 /// the water level of a file older than the project-wide one: the first step that stored its
-/// own, in list order, else `DEFAULT_WATER_LEVEL`; logs when the steps disagreed
+/// own, in list order, else `LEGACY_WATER_LEVEL`; in generator units; logs when the steps disagreed
 fn legacy_water_level(steps: &[Step]) -> f32 {
     let levels: Vec<f32> = steps
         .iter()
         .filter_map(|s| s.typ.legacy_water_level())
         .collect();
     let Some(&first) = levels.first() else {
-        return DEFAULT_WATER_LEVEL;
+        return LEGACY_WATER_LEVEL;
     };
     if levels.iter().any(|&l| l != first) {
         let list: Vec<String> = levels.iter().map(|l| l.to_string()).collect();
@@ -159,8 +177,33 @@ mod tests {
     #[test]
     fn old_file_has_auto_range_and_default_water() {
         let project = Project::from_ron("(seed:1,steps:[])").unwrap();
-        assert_eq!(project.height_range, HeightRange::default());
-        assert_eq!(project.water_level, Some(DEFAULT_WATER_LEVEL));
+        assert!(project.height_range.auto);
+        assert_eq!(project.water_level, Some(LEGACY_WATER_LEVEL * GEN_UNIT_M));
+    }
+
+    #[test]
+    fn old_file_converts_to_meters() {
+        let old =
+            "(seed:1,steps:[],height_range:(auto:false,min:0.0,max:1.0),water_level:Some(0.25))";
+        let project = Project::from_ron(old).unwrap();
+        assert_eq!(project.water_level, Some(1024.0));
+        assert_eq!(
+            (project.height_range.min, project.height_range.max),
+            (0.0, 4096.0)
+        );
+        assert!(project.meters);
+    }
+
+    #[test]
+    fn meters_file_is_not_converted_twice() {
+        let range = HeightRange {
+            auto: false,
+            min: -200.0,
+            max: 3000.0,
+        };
+        let project = Project::new(3, vec![], range, 150.0);
+        let back = Project::from_ron(&project.to_ron().unwrap()).unwrap();
+        assert_eq!(back, project);
     }
 
     #[test]
@@ -180,7 +223,7 @@ mod tests {
     fn legacy_water_level_first_step_wins() {
         let old = "(seed:1,steps:[(disabled:false,mask:None,typ:LandMass((land_proportion:0.6,water_level:0.3,plain_factor:2.5))),(disabled:false,mask:None,typ:FluvialErosion((strength:0.6,uplift:0.0,iterations:5,water_level:0.0,work_res:512)))])";
         let project = Project::from_ron(old).unwrap();
-        assert_eq!(project.water_level, Some(0.3));
+        assert_eq!(project.water_level, Some(0.3 * GEN_UNIT_M));
     }
 
     #[test]
@@ -188,7 +231,21 @@ mod tests {
         let old = "(seed:1,steps:[(disabled:false,mask:None,typ:LandMass((land_proportion:0.6,water_level:0.3,plain_factor:2.5)))])";
         let text = Project::from_ron(old).unwrap().to_ron().unwrap();
         assert_eq!(text.matches("water_level").count(), 1, "{text}");
-        assert!(text.contains("water_level: Some(0.3)"), "{text}");
+        assert!(text.contains("water_level: Some(1228.8)"), "{text}");
+    }
+
+    #[test]
+    fn every_step_type_round_trips() {
+        let steps = StepType::all()
+            .into_iter()
+            .map(|typ| Step {
+                typ,
+                ..Default::default()
+            })
+            .collect();
+        let project = Project::new(7, steps, HeightRange::default(), DEFAULT_WATER_LEVEL);
+        let text = project.to_ron().unwrap();
+        assert_eq!(Project::from_ron(&text).unwrap(), project, "{text}");
     }
 
     #[test]

@@ -345,8 +345,12 @@ impl PanelGenerator {
                                 .on_hover_text("Edit this step's mask")
                                 .clicked()
                             {
-                                self.mask_step = Some(i);
-                                self.selected_step = i;
+                                if self.mask_step == Some(i) {
+                                    self.mask_step = None;
+                                } else {
+                                    self.mask_step = Some(i);
+                                    self.selected_step = i;
+                                }
                             }
                             if ui
                                 .selectable_label(

@@ -48,8 +48,14 @@ When a Vulkan / DirectX 12 / Metal GPU is present, the generators that have a GP
 
 ## Masks
 You can add a mask to a generator step by clicking the square next to the generator name.
-You can then edit the mask using a painting brush. The generator effect will be scaled depending on the mask color.
-The terrain is recomputed with the new mask as soon as you leave the mask editor (by clicking a step name, `Refresh`, or any other change to the step list).
+You can then paint the mask with a brush. White keeps the step's effect, black removes it, and grey keeps part of it.
+- The left button paints the brush `value`. The right button paints the opposite (white becomes black, and black becomes white).
+- Click with the middle button to pick up the color under the cursor as the brush `value`.
+- `brush size`, `falloff` (how soft the brush edge is) and `opacity` (how fast the brush paints) change the brush. Hover over a field to see what it does.
+- Press `Ctrl+Z`, or click `Undo`, to undo your last strokes.
+- `Clear mask` removes the mask.
+
+The terrain updates after each stroke. To close the editor, click the step's mask square again.
 ![Masks UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_masks.jpg)
 Use the feather slider to soften the mask effect to avoid unnatural discontinuities :
 ![Masks UI 2](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_masks2.jpg)

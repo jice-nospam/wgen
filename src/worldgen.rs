@@ -350,8 +350,9 @@ impl WorldGenerator {
     }
 }
 
-/// blends `h` with `prev` (or with its own minimum) by the mask, sampled at the mask's own
-/// side, bilinearly or, with `smooth`, by a uniform cubic B-spline
+/// blends `h` with `prev` (or, for a first step, with height 0) by the mask, sampled at the mask's own
+/// side, bilinearly or, with `smooth`, by a uniform cubic B-spline; map and mask cells are
+/// matched by their centres
 fn apply_mask(
     world_size: (usize, usize),
     mask: &[f32],
@@ -361,15 +362,13 @@ fn apply_mask(
 ) {
     let n = mask_side(mask);
     let mut off = 0;
-    let (min, _) = if prev.is_none() {
-        get_min_max(h)
-    } else {
-        (0.0, 0.0)
-    };
+    let last = (n - 1) as f32;
+    let to_mask =
+        |p: usize, len: usize| ((p as f32 + 0.5) * n as f32 / len as f32 - 0.5).clamp(0.0, last);
     for y in 0..world_size.1 {
-        let myf = (y * n) as f32 / world_size.1 as f32;
+        let myf = to_mask(y, world_size.1);
         for x in 0..world_size.0 {
-            let mxf = (x * n) as f32 / world_size.0 as f32;
+            let mxf = to_mask(x, world_size.0);
             let mask_value = if smooth {
                 mask_bspline(mask, n, mxf, myf)
             } else {
@@ -378,7 +377,7 @@ fn apply_mask(
             if let Some(prev) = prev {
                 h[off] = (1.0 - mask_value) * prev[off] + mask_value * h[off];
             } else {
-                h[off] = (1.0 - mask_value) * min + mask_value * (h[off] - min);
+                h[off] *= mask_value;
             }
             off += 1;
         }
@@ -634,16 +633,41 @@ mod tests {
         }
         for &(w, h) in &[(16usize, 32usize), (32, 16), (32, 32)] {
             let mut hmap: Vec<f32> = (0..w * h).map(|i| 1.0 + (i % 7) as f32).collect();
-            let expected: Vec<f32> = hmap.iter().map(|v| v - 1.0).collect();
+            let expected = hmap.clone();
             apply_mask((w, h), &mask, false, None, &mut hmap);
-            // first row is fully inside the white half: height shifted down by min
+            // first row is fully inside the white half: heights unchanged
             assert_eq!(&hmap[..w], &expected[..w], "top row at {w}x{h}");
-            // last row is fully inside the black half: flattened to min
+            // last row is fully inside the black half: lowered to 0
             assert!(
-                hmap[w * (h - 1)..].iter().all(|&v| v == 1.0),
+                hmap[w * (h - 1)..].iter().all(|&v| v == 0.0),
                 "bottom row at {w}x{h}: {:?}",
                 &hmap[w * (h - 1)..]
             );
+        }
+    }
+
+    #[test]
+    fn masked_flat_first_step_shows_its_mask() {
+        let mut mask = vec![0.0; 16];
+        for i in [5, 6, 9, 10] {
+            mask[i] = 1.0;
+        }
+        let mut hmap = vec![400.0; 16 * 16];
+        apply_mask((16, 16), &mask, false, None, &mut hmap);
+        assert_eq!(hmap[0], 0.0);
+        assert_eq!(hmap[6 + 6 * 16], 400.0);
+    }
+
+    #[test]
+    fn apply_mask_centres_cells() {
+        // cell (1,1) of a 4² mask covers map columns 4..8 of a 16² map, centred at x = 6.0
+        let mut mask = vec![0.0; 16];
+        mask[1 + 4] = 1.0;
+        let mut out = vec![1.0; 16 * 16];
+        apply_mask((16, 16), &mask, false, Some(&vec![0.0; 16 * 16]), &mut out);
+        for d in 0..4 {
+            let (a, b) = (out[(5 - d) + 5 * 16], out[(6 + d) + 5 * 16]);
+            assert!((a - b).abs() < 1e-6, "d={d}: {a} vs {b}");
         }
     }
 

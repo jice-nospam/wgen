@@ -154,7 +154,7 @@ impl PanelMaskEdit {
                 }
                 if ui
                     .button("Clear mask")
-                    .on_hover_text("Delete this mask")
+                    .on_hover_text("Fill the whole mask with the brush value (1.0 removes the mask)")
                     .clicked()
                 {
                     action = Some(self.clear());
@@ -163,16 +163,21 @@ impl PanelMaskEdit {
         });
         action
     }
-    /// fills the mask with ones and resets the feather, undoably
+    /// fills the mask with the brush value and resets the feather, undoably; a mask filled
+    /// with ones is deleted from its step
     fn clear(&mut self) -> Panel2dAction {
         self.push_undo();
         self.feather = 0.0;
         self.feather_pending = false;
+        let value = self.conf.value;
         if let Some(ref mut mask) = self.mask {
-            mask.fill(1.0);
+            mask.fill(value);
             self.mask_dirty = true;
         }
-        Panel2dAction::MaskDelete
+        if value >= 1.0 {
+            return Panel2dAction::MaskDelete;
+        }
+        self.commit().unwrap_or(Panel2dAction::MaskDelete)
     }
     /// brush size, falloff, value and opacity fields
     fn render_brush_row(&mut self, ui: &mut egui::Ui) {

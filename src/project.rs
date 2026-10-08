@@ -323,7 +323,8 @@ mod tests {
         // a 64x64 mask must not become 4096 lines
         let mask_lines: Vec<&str> = text.lines().filter(|l| l.contains("mask: Some(")).collect();
         assert_eq!(mask_lines.len(), 1);
-        assert!(mask_lines[0].contains("0.25"));
+        assert!(mask_lines[0].contains("mask: Some(\""));
+        assert!(!mask_lines[0].contains("0.25"));
         // the feather sits on its own line right after the mask, one field per line
         let lines: Vec<&str> = text.lines().collect();
         let mask_at = lines
@@ -332,7 +333,64 @@ mod tests {
             .unwrap();
         assert_eq!(lines[mask_at + 1].trim(), "mask_feather: 0.3,");
         assert!(text.lines().count() < 60, "{}", text);
-        assert_eq!(Project::from_ron(&text).unwrap(), project);
+        let mut loaded = Project::from_ron(&text).unwrap();
+        for (a, b) in loaded.steps.iter().zip(&project.steps) {
+            assert_masks_close(a.mask.as_deref(), b.mask.as_deref());
+        }
+        for (a, b) in loaded.steps.iter_mut().zip(&project.steps) {
+            a.mask = b.mask.clone();
+        }
+        assert_eq!(loaded, project);
+    }
+
+    fn assert_masks_close(a: Option<&[f32]>, b: Option<&[f32]>) {
+        match (a, b) {
+            (None, None) => {}
+            (Some(a), Some(b)) => {
+                assert_eq!(a.len(), b.len());
+                for (x, y) in a.iter().zip(b) {
+                    assert!((x - y).abs() <= 1.0 / 65535.0, "{x} vs {y}");
+                }
+            }
+            _ => panic!("mask presence differs"),
+        }
+    }
+
+    #[test]
+    fn float_list_mask_still_loads() {
+        let with: Step = ron::from_str(
+            "(disabled: false, mask: Some([0.0, 0.5, 1.0, 0.25]), typ: Normalize((min: 0.0, max: 1.0)))",
+        )
+        .unwrap();
+        assert_eq!(with.mask, Some(vec![0.0, 0.5, 1.0, 0.25]));
+        let without: Step =
+            ron::from_str("(disabled: false, typ: Normalize((min: 0.0, max: 1.0)))").unwrap();
+        assert_eq!(without.mask, None);
+    }
+
+    /// the float lists written on the `mask: Some([..])` lines of a legacy file
+    fn legacy_masks(text: &str) -> Vec<Vec<f32>> {
+        text.lines()
+            .filter_map(|l| l.split_once("mask: Some([").map(|(_, rest)| rest))
+            .map(|rest| {
+                let list = &rest[..rest.find(']').unwrap()];
+                list.split(',').map(|v| v.trim().parse().unwrap()).collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn continent_example_shrinks() {
+        let path = format!("{}/ex_continent.wgen", env!("CARGO_MANIFEST_DIR"));
+        let file = std::fs::read_to_string(&path).unwrap();
+        let expected = legacy_masks(&file);
+        assert_eq!(expected.len(), 3);
+        let project = Project::from_ron(&file).unwrap();
+        let masks: Vec<Vec<f32>> = project.steps.iter().filter_map(|s| s.mask.clone()).collect();
+        assert_eq!(masks, expected);
+        assert!(masks.iter().all(|m| !m.is_empty()));
+        let text = project.to_ron().unwrap();
+        assert!(text.len() * 3 < file.len(), "{} vs {}", text.len(), file.len());
     }
 
     #[test]

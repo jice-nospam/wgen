@@ -10,6 +10,7 @@ mod generators;
 mod gpu;
 mod height_range;
 mod mask;
+mod mask_codec;
 mod panel_2dview;
 mod panel_3dview;
 mod panel_export;

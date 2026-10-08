@@ -236,7 +236,8 @@ impl StepType {
 pub struct Step {
     /// should we skip this step when computing the heightmap ?
     pub disabled: bool,
-    /// this step mask
+    /// this step mask; stored in files as a base64 string of u16 values (`mask_codec`)
+    #[serde(default, with = "crate::mask_codec::serde_mask")]
     pub mask: Option<Vec<f32>>,
     /// how far the mask's edges are softened, 0.0 (hard edge) to 1.0 (a ramp over a quarter
     /// of the map side); `mask::feather_mask` applies it

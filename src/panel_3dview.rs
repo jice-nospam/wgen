@@ -44,7 +44,7 @@ impl Default for Panel3dViewConf {
     fn default() -> Self {
         Self {
             pan: [0.0, 0.0],
-            orbit: [std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_4],
+            orbit: [std::f32::consts::FRAC_PI_4, std::f32::consts::FRAC_PI_4],
             zoom: 60.0,
             hscale: 100.0,
             water_level: 40.0,

@@ -70,8 +70,8 @@ You can also stretch the terrain vertically (`Height scale %`), display a water 
 ![3D preview UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_3d.jpg)
 
 ## Save/Load project
-Here you can save the current generator configuration (all the steps with their parameters and masks) in a plain text file using RON format. You can also load a previously saved project, erasing the current configuration.
-Projects saved by an older version of wgen still load; a project saved by a newer version is refused.
+Here you can save the current generator configuration (all the steps with their parameters and masks, plus the 2D and 3D preview settings: preview size, live preview, camera, height scale, water plane, skybox, sun and exposure) in a plain text file using RON format. You can also load a previously saved project, erasing the current configuration.
+Projects saved by an older version of wgen still load; a project saved by a newer version is refused. Settings missing from an older file take their default value.
 
 ![Save project UI](https://raw.githubusercontent.com/jice-nospam/wgen/main/doc/ui_project.jpg)
 

@@ -4,10 +4,12 @@ use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::height_range::{HeightRange, GEN_UNIT_M};
+use crate::panel_2dview::Panel2dViewConf;
+use crate::panel_3dview::Panel3dViewConf;
 use crate::worldgen::Step;
 use crate::VERSION;
 
-/// The content of a `.wgen` project file: the seed and the step stack, nothing else.
+/// The content of a `.wgen` project file: the seed, the step stack and the preview settings.
 ///
 /// Compatibility policy:
 /// - a file written by an older wgen loads; fields it lacks take their `#[serde(default)]`,
@@ -33,6 +35,12 @@ pub struct Project {
     /// heights are in meters; false in files that stored generator units
     #[serde(default)]
     pub meters: bool,
+    /// 2D preview settings
+    #[serde(default)]
+    pub view_2d: Panel2dViewConf,
+    /// 3D preview camera and scene settings
+    #[serde(default)]
+    pub view_3d: Panel3dViewConf,
 }
 
 /// the water level, in meters, of a new project
@@ -49,6 +57,8 @@ impl Project {
             height_range,
             water_level: Some(water_level),
             meters: true,
+            view_2d: Panel2dViewConf::default(),
+            view_3d: Panel3dViewConf::default(),
         }
     }
 
@@ -249,6 +259,38 @@ mod tests {
     }
 
     #[test]
+    fn old_file_has_default_views() {
+        let project = Project::from_ron("(seed:1,steps:[])").unwrap();
+        assert_eq!(project.view_2d, Panel2dViewConf::default());
+        assert_eq!(project.view_3d, Panel3dViewConf::default());
+    }
+
+    #[test]
+    fn partial_view_settings_take_defaults() {
+        let text = "(seed:1,steps:[],view_2d:(live_preview:false),view_3d:(zoom:20.0))";
+        let project = Project::from_ron(text).unwrap();
+        assert!(!project.view_2d.live_preview);
+        assert_eq!(project.view_2d.preview_size, 128);
+        assert_eq!(project.view_3d.zoom, 20.0);
+        assert_eq!(project.view_3d.hscale, Panel3dViewConf::default().hscale);
+    }
+
+    #[test]
+    fn view_settings_round_trip() {
+        let mut project = Project::new(3, vec![], HeightRange::default(), 0.0);
+        project.view_2d = Panel2dViewConf {
+            preview_size: 512,
+            live_preview: false,
+        };
+        project.view_3d.orbit = [1.0, 0.5];
+        project.view_3d.show_skybox = false;
+        project.view_3d.exposure = 9.5;
+        let text = project.to_ron().unwrap();
+        assert!(!text.contains("water_level: 40"), "{text}");
+        assert_eq!(Project::from_ron(&text).unwrap(), project);
+    }
+
+    #[test]
     fn file_without_version_loads() {
         let project = Project::from_ron("(seed:1,steps:[])").unwrap();
         assert_eq!(project.version, "");
@@ -289,7 +331,7 @@ mod tests {
             .position(|l| l.contains("mask: Some("))
             .unwrap();
         assert_eq!(lines[mask_at + 1].trim(), "mask_feather: 0.3,");
-        assert!(text.lines().count() < 40, "{}", text);
+        assert!(text.lines().count() < 60, "{}", text);
         assert_eq!(Project::from_ron(&text).unwrap(), project);
     }
 

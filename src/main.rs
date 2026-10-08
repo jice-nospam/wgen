@@ -43,8 +43,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use height_range::HeightRange;
-use panel_2dview::{Panel2dAction, Panel2dView};
-use panel_3dview::Panel3dView;
+use panel_2dview::{Panel2dAction, Panel2dView, Panel2dViewConf};
+use panel_3dview::{Panel3dView, Panel3dViewConf};
 use panel_export::PanelExport;
 use panel_generator::{GeneratorAction, PanelGenerator};
 use panel_save::{PanelSaveLoad, SaveLoadAction};
@@ -416,6 +416,20 @@ impl MyApp {
             .unwrap();
         self.regen(None, 0);
     }
+    /// restores the preview settings of a loaded project; the caller regenerates
+    fn apply_view_settings(&mut self, views: &(Panel2dViewConf, Panel3dViewConf)) {
+        let (view_2d, view_3d) = *views;
+        self.panel_2d.set_conf(view_2d);
+        self.panel_3d.set_conf(view_3d);
+        if self.preview_size != view_2d.preview_size {
+            self.preview_size = view_2d.preview_size;
+            self.main2wgen_tx
+                .send(WorldGenCommand::SetSize(view_2d.preview_size))
+                .unwrap();
+            self.panel_2d
+                .refresh(self.image_size, self.preview_size as u32, None);
+        }
+    }
     fn render_left_panel(&mut self, root: &mut egui::Ui) {
         egui::Panel::left("Generation").show(root, |ui| {
             ui.label(format!("wgen {}", VERSION));
@@ -434,12 +448,14 @@ impl MyApp {
                 Some(SaveLoadAction::Load) => {
                     match Project::load(self.load_save_panel.get_file_path()) {
                         Ok(project) => {
+                            let project_views = (project.view_2d, project.view_3d);
                             self.gen_panel.load_project(project);
                             self.main2wgen_tx.send(WorldGenCommand::Clear).unwrap();
                             self.main2wgen_tx
                                 .send(WorldGenCommand::SetWaterLevel(self.gen_panel.water_level))
                                 .unwrap();
                             self.panel_2d.set_height_range(self.gen_panel.height_range);
+                            self.apply_view_settings(&project_views);
                             self.set_seed(self.gen_panel.seed);
                         }
                         Err(msg) => {
@@ -454,10 +470,10 @@ impl MyApp {
                     }
                 }
                 Some(SaveLoadAction::Save) => {
-                    if let Err(msg) = self
-                        .gen_panel
-                        .project()
-                        .save(self.load_save_panel.get_file_path())
+                    let mut project = self.gen_panel.project();
+                    project.view_2d = self.panel_2d.conf();
+                    project.view_3d = self.panel_3d.conf();
+                    if let Err(msg) = project.save(self.load_save_panel.get_file_path())
                     {
                         let err_msg = format!(
                             "Error while writing project {} : {}",

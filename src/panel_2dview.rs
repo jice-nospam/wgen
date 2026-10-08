@@ -1,4 +1,5 @@
 use egui::{Color32, ColorImage, TextureHandle};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     fps::FpsCounter, height_range::HeightRange, panel_maskedit::PanelMaskEdit, worldgen::ExportMap,
@@ -13,6 +14,25 @@ pub enum Panel2dAction {
     /// the mask being edited was cleared : remove it from its step
     MaskDelete,
 }
+/// the 2D preview settings saved in the `.wgen` file; fields a file lacks take their default
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Panel2dViewConf {
+    /// size of the previewed heightmap
+    pub preview_size: usize,
+    /// update the preview every time a step is computed
+    pub live_preview: bool,
+}
+
+impl Default for Panel2dViewConf {
+    fn default() -> Self {
+        Self {
+            preview_size: 128,
+            live_preview: true,
+        }
+    }
+}
+
 pub struct Panel2dView {
     /// preview image of the heightmap
     img: ColorImage,
@@ -64,6 +84,16 @@ impl Panel2dView {
         };
         panel.refresh(image_size, preview_size, Some(hmap));
         panel
+    }
+    pub fn conf(&self) -> Panel2dViewConf {
+        Panel2dViewConf {
+            preview_size: self.preview_size,
+            live_preview: self.live_preview,
+        }
+    }
+    /// restores the live preview flag; the preview size reaches the panel through `refresh`
+    pub fn set_conf(&mut self, conf: Panel2dViewConf) {
+        self.live_preview = conf.live_preview;
     }
     /// shows the mask editor on top of the current heightmap
     pub fn display_mask(

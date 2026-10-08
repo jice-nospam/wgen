@@ -1,4 +1,5 @@
 use egui::PointerButton;
+use serde::{Deserialize, Serialize};
 
 const PANEL3D_SIZE: f32 = 256.0;
 /// zoom at which the vertical fov `90 - zoom * 0.8` reaches its 1 degree minimum
@@ -6,7 +7,9 @@ const ZOOM_MAX: f32 = 111.25;
 /// zoom units per scroll point (one wheel notch is 40 points)
 const WHEEL_ZOOM_SPEED: f32 = 0.1;
 
-#[derive(Clone, Copy, PartialEq)]
+/// saved in the `.wgen` file; fields a file lacks take their default
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Panel3dViewConf {
     /// camera x and y orbit angles
     pub orbit: [f32; 2],
@@ -17,7 +20,8 @@ pub struct Panel3dViewConf {
     /// vertical scale to apply to the heightmap
     pub hscale: f32,
     /// water plane height in scene units (`water_level × ZSCALE`), written by `MyApp` from the
-    /// project's water level
+    /// project's water level; not saved
+    #[serde(skip)]
     pub water_level: f32,
     /// do we display the water plane ?
     pub show_water: bool,
@@ -75,6 +79,13 @@ impl Panel3dView {
     /// the camera and scene settings, applied to the scene by `preview3d::apply_view_conf`
     pub fn conf(&self) -> Panel3dViewConf {
         self.conf
+    }
+    /// restores the settings loaded from a project; `water_level` is left to `MyApp`
+    pub fn set_conf(&mut self, conf: Panel3dViewConf) {
+        self.conf = Panel3dViewConf {
+            water_level: self.conf.water_level,
+            ..conf
+        };
     }
     /// draws the widgets, paints the scene image `texture` in the 3D square and returns the
     /// square's rect, in egui points

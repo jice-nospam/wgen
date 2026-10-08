@@ -1,5 +1,5 @@
-use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use crate::height_range::drag_meters;
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use serde::{Deserialize, Serialize};
 
 use super::{par_rows, Progress};

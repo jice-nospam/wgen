@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use crate::height_range::drag_meters;
 use super::normalize;
+use crate::height_range::drag_meters;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct NormalizeConf {

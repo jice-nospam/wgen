@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::height_range::drag_meters;
 use super::thermal_erosion::{slide_pass, ThermalErosionConf, ThermalParams};
 use super::{add_upsampled, downsample, receiver_distance, work_size, FlowNet, Progress};
+use crate::height_range::drag_meters;
 
 // stream-power incision after Braun & Willett 2013 : every cell is lowered toward the cell it
 // drains into, in proportion to the square root of its drainage area, with the implicit solve

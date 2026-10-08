@@ -249,6 +249,9 @@ struct MyApp {
     panel_3d: Panel3dView,
     panel_2d: Panel2dView,
     load_save_panel: PanelSaveLoad,
+    /// result of the project save running on its own thread, while one is
+    /// (a `Receiver` is not `Sync`, which a resource must be)
+    save_rx: Option<Mutex<Receiver<Result<(), String>>>>,
     // thread communication
     /// channel to receive messages from either world generator or exporter
     /// (a `Receiver` is not `Sync`, which a resource must be)
@@ -309,6 +312,7 @@ impl MyApp {
             gen_panel,
             export_panel: PanelExport::default(),
             load_save_panel: PanelSaveLoad::default(),
+            save_rx: None,
             thread2main_rx: Mutex::new(thread2main_rx),
             main2wgen_tx: main2gen_tx,
             exp2main_tx,
@@ -430,6 +434,47 @@ impl MyApp {
                 .refresh(self.image_size, self.preview_size as u32, None);
         }
     }
+    /// serializes and writes the project on its own thread; `poll_save` collects the result
+    fn start_save(&mut self) {
+        let mut project = self.gen_panel.project();
+        project.view_2d = self.panel_2d.conf();
+        project.view_3d = self.panel_3d.conf();
+        let file_path = self.load_save_panel.get_file_path().to_owned();
+        let (tx, rx) = mpsc::channel();
+        self.save_rx = Some(Mutex::new(rx));
+        thread::spawn(move || {
+            let result = project
+                .save(&file_path)
+                .map_err(|msg| format!("Error while writing project {} : {}", file_path, msg));
+            if result.is_ok() {
+                log(&format!("project saved to {}", file_path));
+            }
+            // the receiver is gone only if the app is closing
+            let _ = tx.send(result);
+        });
+    }
+    /// ends the running save once its thread has reported, keeping the UI repainting until then
+    fn poll_save(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.save_rx else {
+            return;
+        };
+        let result = match rx.lock().unwrap().try_recv() {
+            Ok(result) => result,
+            Err(mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint();
+                return;
+            }
+            Err(mpsc::TryRecvError::Disconnected) => Err("project save thread died".to_owned()),
+        };
+        self.save_rx = None;
+        match result {
+            Ok(()) => self.load_save_panel.set_saved(),
+            Err(err_msg) => {
+                log(&err_msg);
+                self.err_msg = Some(err_msg);
+            }
+        }
+    }
     fn render_left_panel(&mut self, root: &mut egui::Ui) {
         egui::Panel::left("Generation").show(root, |ui| {
             ui.label(format!("wgen {}", VERSION));
@@ -444,7 +489,8 @@ impl MyApp {
                 self.export();
             }
             ui.separator();
-            match self.load_save_panel.render(ui) {
+            self.poll_save(ui.ctx());
+            match self.load_save_panel.render(ui, self.save_rx.is_some()) {
                 Some(SaveLoadAction::Load) => {
                     match Project::load(self.load_save_panel.get_file_path()) {
                         Ok(project) => {
@@ -469,21 +515,7 @@ impl MyApp {
                         }
                     }
                 }
-                Some(SaveLoadAction::Save) => {
-                    let mut project = self.gen_panel.project();
-                    project.view_2d = self.panel_2d.conf();
-                    project.view_3d = self.panel_3d.conf();
-                    if let Err(msg) = project.save(self.load_save_panel.get_file_path())
-                    {
-                        let err_msg = format!(
-                            "Error while writing project {} : {}",
-                            self.load_save_panel.get_file_path(),
-                            msg
-                        );
-                        log(&err_msg);
-                        self.err_msg = Some(err_msg);
-                    }
-                }
+                Some(SaveLoadAction::Save) => self.start_save(),
                 None => (),
             }
             ui.separator();

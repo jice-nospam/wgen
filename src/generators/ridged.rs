@@ -1,5 +1,5 @@
-use noise::{NoiseFn, RidgedMulti};
 use crate::height_range::drag_meters;
+use noise::{NoiseFn, RidgedMulti};
 use serde::{Deserialize, Serialize};
 
 use super::noise_field::{noise_coef, ridged_stream, virtual_coords, Warp};

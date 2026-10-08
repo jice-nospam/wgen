@@ -339,7 +339,11 @@ impl Vertical {
         let span = max - min;
         Self {
             base: min,
-            coef: if span <= f32::EPSILON { 0.0 } else { ZSCALE / span },
+            coef: if span <= f32::EPSILON {
+                0.0
+            } else {
+                ZSCALE / span
+            },
         }
     }
 
@@ -779,7 +783,11 @@ mod tests {
         let pos = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap();
         let heights = pos.as_float3().unwrap().iter().map(|p| p[1]).collect();
         let skirt = skirt_mesh(size, h, v);
-        let foot = skirt.attribute(Mesh::ATTRIBUTE_POSITION).unwrap().as_float3().unwrap()[1][1];
+        let foot = skirt
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .unwrap()
+            .as_float3()
+            .unwrap()[1][1];
         (heights, foot)
     }
 
@@ -830,7 +838,13 @@ mod tests {
         let size = (4, 3);
         // the minimum sits inside, so no wall triangle is degenerate
         let h: Vec<f32> = (0..12)
-            .map(|v| if v == 5 { 0.0 } else { (v as f32 + 1.0) * GEN_UNIT_M })
+            .map(|v| {
+                if v == 5 {
+                    0.0
+                } else {
+                    (v as f32 + 1.0) * GEN_UNIT_M
+                }
+            })
             .collect();
         let mesh = skirt_mesh(size, &h, Vertical::absolute());
         let pos = mesh
